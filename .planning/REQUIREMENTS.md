@@ -1,7 +1,7 @@
 # Requirements: Lobster Claws
 
 **Defined:** 2026-03-17
-**Core Value:** Every skill follows the same pattern: thin CLI in container → HTTP call to host server → stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
+**Core Value:** Every skill follows the same pattern: thin CLI in container -> HTTP call to host server -> stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
 
 ## v1 Requirements
 
@@ -52,7 +52,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 | Feature | Reason |
 |---------|--------|
-| Direct external API calls from container | All skills proxy through host servers — centralized auth/logging |
+| Direct external API calls from container | All skills proxy through host servers -- centralized auth/logging |
 | MCP protocol support | OpenClaw uses CLI-based tool invocation, not MCP |
 | GPU in container | No CUDA/GPU access; ML inference runs on host Apple Silicon |
 | Docker image modifications | Skills install via pip; Dockerfile changes are OpenClaw repo's concern |
@@ -64,28 +64,28 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LIB-01 | — | Pending |
-| LIB-02 | — | Pending |
-| LIB-03 | — | Pending |
-| LIB-04 | — | Pending |
-| WHSP-01 | — | Pending |
-| WHSP-02 | — | Pending |
-| WHSP-03 | — | Pending |
-| WHSP-04 | — | Pending |
-| TRNS-01 | — | Pending |
-| TRNS-02 | — | Pending |
-| TRNS-03 | — | Pending |
-| TRNS-04 | — | Pending |
-| INFR-01 | — | Pending |
-| INFR-02 | — | Pending |
-| INFR-03 | — | Pending |
-| INFR-04 | — | Pending |
+| LIB-01 | Phase 1: Foundation | Pending |
+| LIB-02 | Phase 1: Foundation | Pending |
+| LIB-03 | Phase 1: Foundation | Pending |
+| LIB-04 | Phase 3: Discovery and Documentation | Pending |
+| WHSP-01 | Phase 2: Transcription Skill | Pending |
+| WHSP-02 | Phase 2: Transcription Skill | Pending |
+| WHSP-03 | Phase 2: Transcription Skill | Pending |
+| WHSP-04 | Phase 2: Transcription Skill | Pending |
+| TRNS-01 | Phase 2: Transcription Skill | Pending |
+| TRNS-02 | Phase 2: Transcription Skill | Pending |
+| TRNS-03 | Phase 2: Transcription Skill | Pending |
+| TRNS-04 | Phase 2: Transcription Skill | Pending |
+| INFR-01 | Phase 2: Transcription Skill | Pending |
+| INFR-02 | Phase 1: Foundation | Pending |
+| INFR-03 | Phase 1: Foundation | Pending |
+| INFR-04 | Phase 3: Discovery and Documentation | Pending |
 
 **Coverage:**
 - v1 requirements: 16 total
-- Mapped to phases: 0
-- Unmapped: 16 ⚠️
+- Mapped to phases: 16
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-17*
-*Last updated: 2026-03-17 after initial definition*
+*Last updated: 2026-03-17 after roadmap creation*
