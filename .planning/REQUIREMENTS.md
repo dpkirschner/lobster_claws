@@ -9,9 +9,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Shared Library
 
-- [ ] **LIB-01**: Host resolution auto-detects Docker vs host environment via `.dockerenv`, cgroup check, and `OPENCLAW_TOOLS_HOST` env var override
-- [ ] **LIB-02**: HTTP client wrapper provides POST/GET with configurable timeouts, connection error messages including service name and URL
-- [ ] **LIB-03**: Structured output convention: result JSON to stdout, errors/diagnostics to stderr, exit codes 0/1/2
+- [x] **LIB-01**: Host resolution auto-detects Docker vs host environment via `.dockerenv`, cgroup check, and `OPENCLAW_TOOLS_HOST` env var override
+- [x] **LIB-02**: HTTP client wrapper provides POST/GET with configurable timeouts, connection error messages including service name and URL
+- [x] **LIB-03**: Structured output convention: result JSON to stdout, errors/diagnostics to stderr, exit codes 0/1/2
 - [ ] **LIB-04**: Meta-CLI `claws` command discovers installed skills via Python entry points and routes to them
 
 ### Whisper Server
@@ -64,9 +64,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LIB-01 | Phase 1: Foundation | Pending |
-| LIB-02 | Phase 1: Foundation | Pending |
-| LIB-03 | Phase 1: Foundation | Pending |
+| LIB-01 | Phase 1: Foundation | Complete |
+| LIB-02 | Phase 1: Foundation | Complete |
+| LIB-03 | Phase 1: Foundation | Complete |
 | LIB-04 | Phase 3: Discovery and Documentation | Pending |
 | WHSP-01 | Phase 2: Transcription Skill | Pending |
 | WHSP-02 | Phase 2: Transcription Skill | Pending |
