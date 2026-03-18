@@ -44,11 +44,12 @@ Plans:
   3. Model selection works end-to-end: `--model` flag on CLI propagates to server and uses the requested model
   4. Server auto-starts after Mac mini reboot via launchd and auto-restarts after crash
   5. Default model stays loaded in memory between requests (no cold-start penalty on second call)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md — Whisper server: FastAPI app with /transcribe, /health, model preloading, and tests
+- [ ] 02-02-PLAN.md — Transcribe CLI: claws-transcribe package with --model, --format flags, and tests
+- [ ] 02-03-PLAN.md — launchd plist for whisper server auto-start/restart with validation tests
 
 ### Phase 3: Discovery and Documentation
 **Goal**: Users can discover installed skills via a single `claws` command and new contributors can set up the project from the README
@@ -71,5 +72,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 0/2 | Not started | - |
-| 2. Transcription Skill | 0/? | Not started | - |
+| 2. Transcription Skill | 0/3 | Not started | - |
 | 3. Discovery and Documentation | 0/? | Not started | - |
