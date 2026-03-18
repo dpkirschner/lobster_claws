@@ -1,6 +1,7 @@
 import json
+
 import pytest
-from claws_common.output import result, error, fail, crash
+from claws_common.output import crash, error, fail, result
 
 
 def test_result_string(capsys):

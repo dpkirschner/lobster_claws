@@ -1,6 +1,7 @@
 import os
 from unittest.mock import patch
-from claws_common.host import resolve_host, _in_docker
+
+from claws_common.host import _in_docker, resolve_host
 
 
 def test_env_var_override():

@@ -23,7 +23,7 @@ def _in_docker() -> bool:
     if os.environ.get("container") == "docker":
         return True
     try:
-        with open("/proc/1/cgroup", "r") as f:
+        with open("/proc/1/cgroup") as f:
             return "docker" in f.read()
     except (FileNotFoundError, PermissionError):
         return False

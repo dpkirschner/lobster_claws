@@ -1,6 +1,7 @@
-import pytest
-import httpx
 from unittest.mock import patch
+
+import httpx
+import pytest
 from claws_common.client import ClawsClient
 
 
