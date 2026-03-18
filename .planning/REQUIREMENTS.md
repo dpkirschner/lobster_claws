@@ -31,8 +31,8 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Infrastructure
 
 - [ ] **INFR-01**: launchd plist auto-starts and restarts whisper server on Mac mini
-- [ ] **INFR-02**: Standard Python `.gitignore` for monorepo
-- [ ] **INFR-03**: uv workspace configuration with root `pyproject.toml` managing all packages
+- [x] **INFR-02**: Standard Python `.gitignore` for monorepo
+- [x] **INFR-03**: uv workspace configuration with root `pyproject.toml` managing all packages
 - [ ] **INFR-04**: Top-level README covering repo structure, skill installation, server setup, and how to add new skills
 
 ## v2 Requirements
@@ -77,8 +77,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TRNS-03 | Phase 2: Transcription Skill | Pending |
 | TRNS-04 | Phase 2: Transcription Skill | Pending |
 | INFR-01 | Phase 2: Transcription Skill | Pending |
-| INFR-02 | Phase 1: Foundation | Pending |
-| INFR-03 | Phase 1: Foundation | Pending |
+| INFR-02 | Phase 1: Foundation | Complete |
+| INFR-03 | Phase 1: Foundation | Complete |
 | INFR-04 | Phase 3: Discovery and Documentation | Pending |
 
 **Coverage:**
