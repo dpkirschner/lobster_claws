@@ -25,4 +25,5 @@ line-length = 100
 select = ["E", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
-testpaths = ["common/tests", "skills", "servers"]
+testpaths = ["common/tests", "skills", "servers", "tests"]
+addopts = "--import-mode=importlib"

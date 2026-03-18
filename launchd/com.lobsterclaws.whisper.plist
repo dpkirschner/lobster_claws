@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lobsterclaws.whisper</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/little-dank/code/lobster_claws/.venv/bin/uvicorn</string>
+        <string>whisper_server.app:app</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>8300</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/little-dank/code/lobster_claws/servers/whisper</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>WHISPER_MODEL</key>
+        <string>mlx-community/whisper-turbo</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/little-dank/Library/Logs/lobsterclaws/whisper.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/little-dank/Library/Logs/lobsterclaws/whisper.err</string>
+</dict>
+</plist>
