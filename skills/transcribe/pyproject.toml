@@ -12,5 +12,8 @@ build-backend = "hatchling.build"
 [project.scripts]
 claws-transcribe = "claws_transcribe.cli:main"
 
+[project.entry-points."claws.skills"]
+transcribe = "claws_transcribe.cli:main"
+
 [tool.uv.sources]
 claws-common = { workspace = true }
