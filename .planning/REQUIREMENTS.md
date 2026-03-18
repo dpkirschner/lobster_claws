@@ -23,10 +23,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Transcribe Skill
 
-- [ ] **TRNS-01**: `claws-transcribe` CLI accepts audio file path, POSTs to whisper server, prints transcription to stdout
-- [ ] **TRNS-02**: `--format` flag switches output between plain text and JSON
-- [ ] **TRNS-03**: `--model` flag allows choosing whisper model for the request
-- [ ] **TRNS-04**: Runs with `PYTHONUNBUFFERED=1` for Docker compatibility
+- [x] **TRNS-01**: `claws-transcribe` CLI accepts audio file path, POSTs to whisper server, prints transcription to stdout
+- [x] **TRNS-02**: `--format` flag switches output between plain text and JSON
+- [x] **TRNS-03**: `--model` flag allows choosing whisper model for the request
+- [x] **TRNS-04**: Runs with `PYTHONUNBUFFERED=1` for Docker compatibility
 
 ### Infrastructure
 
@@ -72,10 +72,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WHSP-02 | Phase 2: Transcription Skill | Pending |
 | WHSP-03 | Phase 2: Transcription Skill | Pending |
 | WHSP-04 | Phase 2: Transcription Skill | Pending |
-| TRNS-01 | Phase 2: Transcription Skill | Pending |
-| TRNS-02 | Phase 2: Transcription Skill | Pending |
-| TRNS-03 | Phase 2: Transcription Skill | Pending |
-| TRNS-04 | Phase 2: Transcription Skill | Pending |
+| TRNS-01 | Phase 2: Transcription Skill | Complete |
+| TRNS-02 | Phase 2: Transcription Skill | Complete |
+| TRNS-03 | Phase 2: Transcription Skill | Complete |
+| TRNS-04 | Phase 2: Transcription Skill | Complete |
 | INFR-01 | Phase 2: Transcription Skill | Pending |
 | INFR-02 | Phase 1: Foundation | Complete |
 | INFR-03 | Phase 1: Foundation | Complete |
