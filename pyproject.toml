@@ -7,12 +7,13 @@ requires-python = ">=3.12"
 package = false
 
 [tool.uv.workspace]
-members = ["common", "skills/*", "servers/*"]
+members = ["common", "cli", "skills/*", "servers/*"]
 
 [dependency-groups]
-dev = ["claws-common", "claws-transcribe", "whisper-server", "ruff>=0.15", "pytest>=9.0", "pytest-httpx>=0.36"]
+dev = ["claws-cli", "claws-common", "claws-transcribe", "whisper-server", "ruff>=0.15", "pytest>=9.0", "pytest-httpx>=0.36"]
 
 [tool.uv.sources]
+claws-cli = { workspace = true }
 claws-common = { workspace = true }
 claws-transcribe = { workspace = true }
 whisper-server = { workspace = true }
@@ -25,5 +26,5 @@ line-length = 100
 select = ["E", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
-testpaths = ["common/tests", "skills", "servers", "tests"]
+testpaths = ["cli/tests", "common/tests", "skills", "servers", "tests"]
 addopts = "--import-mode=importlib"
