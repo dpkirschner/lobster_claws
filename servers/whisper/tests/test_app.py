@@ -8,7 +8,6 @@ from __future__ import annotations
 import io
 import struct
 import sys
-from contextlib import asynccontextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
