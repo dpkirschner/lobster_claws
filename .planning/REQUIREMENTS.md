@@ -1,0 +1,91 @@
+# Requirements: Lobster Claws
+
+**Defined:** 2026-03-17
+**Core Value:** Every skill follows the same pattern: thin CLI in container → HTTP call to host server → stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
+
+## v1 Requirements
+
+Requirements for initial release. Each maps to roadmap phases.
+
+### Shared Library
+
+- [ ] **LIB-01**: Host resolution auto-detects Docker vs host environment via `.dockerenv`, cgroup check, and `OPENCLAW_TOOLS_HOST` env var override
+- [ ] **LIB-02**: HTTP client wrapper provides POST/GET with configurable timeouts, connection error messages including service name and URL
+- [ ] **LIB-03**: Structured output convention: result JSON to stdout, errors/diagnostics to stderr, exit codes 0/1/2
+- [ ] **LIB-04**: Meta-CLI `claws` command discovers installed skills via Python entry points and routes to them
+
+### Whisper Server
+
+- [ ] **WHSP-01**: FastAPI server exposes `POST /transcribe` accepting audio file upload, returns transcription text
+- [ ] **WHSP-02**: Server exposes `GET /health` returning server status and loaded model info
+- [ ] **WHSP-03**: Model selection parameter on `/transcribe` allows choosing whisper model per request
+- [ ] **WHSP-04**: Model preloading keeps the default model in memory between requests for faster response
+
+### Transcribe Skill
+
+- [ ] **TRNS-01**: `claws-transcribe` CLI accepts audio file path, POSTs to whisper server, prints transcription to stdout
+- [ ] **TRNS-02**: `--format` flag switches output between plain text and JSON
+- [ ] **TRNS-03**: `--model` flag allows choosing whisper model for the request
+- [ ] **TRNS-04**: Runs with `PYTHONUNBUFFERED=1` for Docker compatibility
+
+### Infrastructure
+
+- [ ] **INFR-01**: launchd plist auto-starts and restarts whisper server on Mac mini
+- [ ] **INFR-02**: Standard Python `.gitignore` for monorepo
+- [ ] **INFR-03**: uv workspace configuration with root `pyproject.toml` managing all packages
+- [ ] **INFR-04**: Top-level README covering repo structure, skill installation, server setup, and how to add new skills
+
+## v2 Requirements
+
+### Operations
+
+- **OPS-01**: `claws status` health dashboard checking all registered servers
+- **OPS-02**: Request queuing for concurrent whisper calls
+- **OPS-03**: MLX memory cache clearing between requests
+
+### Additional Skills
+
+- **SKILL-01**: Resy reservation skill + server
+- **SKILL-02**: Spotify control skill + server
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Direct external API calls from container | All skills proxy through host servers — centralized auth/logging |
+| MCP protocol support | OpenClaw uses CLI-based tool invocation, not MCP |
+| GPU in container | No CUDA/GPU access; ML inference runs on host Apple Silicon |
+| Docker image modifications | Skills install via pip; Dockerfile changes are OpenClaw repo's concern |
+| Plugin auto-discovery via filesystem | Over-engineered; entry points are the right mechanism |
+
+## Traceability
+
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| LIB-01 | — | Pending |
+| LIB-02 | — | Pending |
+| LIB-03 | — | Pending |
+| LIB-04 | — | Pending |
+| WHSP-01 | — | Pending |
+| WHSP-02 | — | Pending |
+| WHSP-03 | — | Pending |
+| WHSP-04 | — | Pending |
+| TRNS-01 | — | Pending |
+| TRNS-02 | — | Pending |
+| TRNS-03 | — | Pending |
+| TRNS-04 | — | Pending |
+| INFR-01 | — | Pending |
+| INFR-02 | — | Pending |
+| INFR-03 | — | Pending |
+| INFR-04 | — | Pending |
+
+**Coverage:**
+- v1 requirements: 16 total
+- Mapped to phases: 0
+- Unmapped: 16 ⚠️
+
+---
+*Requirements defined: 2026-03-17*
+*Last updated: 2026-03-17 after initial definition*
