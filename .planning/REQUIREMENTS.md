@@ -12,7 +12,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **LIB-01**: Host resolution auto-detects Docker vs host environment via `.dockerenv`, cgroup check, and `OPENCLAW_TOOLS_HOST` env var override
 - [x] **LIB-02**: HTTP client wrapper provides POST/GET with configurable timeouts, connection error messages including service name and URL
 - [x] **LIB-03**: Structured output convention: result JSON to stdout, errors/diagnostics to stderr, exit codes 0/1/2
-- [ ] **LIB-04**: Meta-CLI `claws` command discovers installed skills via Python entry points and routes to them
+- [x] **LIB-04**: Meta-CLI `claws` command discovers installed skills via Python entry points and routes to them
 
 ### Whisper Server
 
@@ -33,7 +33,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **INFR-01**: launchd plist auto-starts and restarts whisper server on Mac mini
 - [x] **INFR-02**: Standard Python `.gitignore` for monorepo
 - [x] **INFR-03**: uv workspace configuration with root `pyproject.toml` managing all packages
-- [ ] **INFR-04**: Top-level README covering repo structure, skill installation, server setup, and how to add new skills
+- [x] **INFR-04**: Top-level README covering repo structure, skill installation, server setup, and how to add new skills
 
 ## v2 Requirements
 
@@ -67,7 +67,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LIB-01 | Phase 1: Foundation | Complete |
 | LIB-02 | Phase 1: Foundation | Complete |
 | LIB-03 | Phase 1: Foundation | Complete |
-| LIB-04 | Phase 3: Discovery and Documentation | Pending |
+| LIB-04 | Phase 3: Discovery and Documentation | Complete |
 | WHSP-01 | Phase 2: Transcription Skill | Complete |
 | WHSP-02 | Phase 2: Transcription Skill | Complete |
 | WHSP-03 | Phase 2: Transcription Skill | Complete |
@@ -79,7 +79,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFR-01 | Phase 2: Transcription Skill | Complete |
 | INFR-02 | Phase 1: Foundation | Complete |
 | INFR-03 | Phase 1: Foundation | Complete |
-| INFR-04 | Phase 3: Discovery and Documentation | Pending |
+| INFR-04 | Phase 3: Discovery and Documentation | Complete |
 
 **Coverage:**
 - v1 requirements: 16 total

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-03-18T06:24:04.811Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-03-18T06:35:06.565Z"
 last_activity: 2026-03-18 -- Completed 02-02 transcribe CLI implementation
 progress:
   total_phases: 3
-  completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
-  percent: 80
+  completed_phases: 3
+  total_plans: 7
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-17)
 
 **Core value:** Every skill follows the same pattern: thin CLI in container -> HTTP call to host server -> stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
-**Current focus:** Phase 1: Foundation
+**Current focus:** Phase 3: Discovery and Documentation
 
 ## Current Position
 
-Phase: 2 of 3 (Transcription Skill)
+Phase: 3 of 3 (Discovery and Documentation)
 Plan: 2 of 2 in current phase
-Status: Executing
-Last activity: 2026-03-18 -- Completed 02-02 transcribe CLI implementation
+Status: Complete
+Last activity: 2026-03-18 -- Completed 03-02 project README
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -55,6 +55,8 @@ Progress: [████████░░] 80%
 | Phase 02 P02 | 2min | 2 tasks | 7 files |
 | Phase 02 P01 | 3min | 2 tasks | 6 files |
 | Phase 02 P03 | 2min | 1 tasks | 3 files |
+| Phase 03 P02 | 2min | 1 tasks | 1 files |
+| Phase 03 P01 | 2min | 1 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -71,6 +73,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Used ModelHolder.get_model with fallback to dummy transcribe for model preloading
 - [Phase 02]: Added whisper-server as workspace dev dependency for test runner access
 - [Phase 02]: Added --import-mode=importlib to pytest config to resolve test namespace collision between root tests/ and skills/transcribe/tests/
+- [Phase 03]: Documented claws.skills entry point pattern for skill registration in README new skill guide
+- [Phase 03]: Skills self-register via [project.entry-points.'claws.skills'] in pyproject.toml for meta-CLI discovery
 
 ### Pending Todos
 
@@ -82,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-18T06:20:36.256Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-03-18T06:35:06.563Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None
