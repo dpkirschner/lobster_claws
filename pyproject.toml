@@ -10,7 +10,10 @@ package = false
 members = ["common", "skills/*", "servers/*"]
 
 [dependency-groups]
-dev = ["ruff>=0.15", "pytest>=9.0", "pytest-httpx>=0.36"]
+dev = ["claws-common", "ruff>=0.15", "pytest>=9.0", "pytest-httpx>=0.36"]
+
+[tool.uv.sources]
+claws-common = { workspace = true }
 
 [tool.ruff]
 target-version = "py312"
