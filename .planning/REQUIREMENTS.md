@@ -16,10 +16,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Whisper Server
 
-- [ ] **WHSP-01**: FastAPI server exposes `POST /transcribe` accepting audio file upload, returns transcription text
-- [ ] **WHSP-02**: Server exposes `GET /health` returning server status and loaded model info
-- [ ] **WHSP-03**: Model selection parameter on `/transcribe` allows choosing whisper model per request
-- [ ] **WHSP-04**: Model preloading keeps the default model in memory between requests for faster response
+- [x] **WHSP-01**: FastAPI server exposes `POST /transcribe` accepting audio file upload, returns transcription text
+- [x] **WHSP-02**: Server exposes `GET /health` returning server status and loaded model info
+- [x] **WHSP-03**: Model selection parameter on `/transcribe` allows choosing whisper model per request
+- [x] **WHSP-04**: Model preloading keeps the default model in memory between requests for faster response
 
 ### Transcribe Skill
 
@@ -68,10 +68,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LIB-02 | Phase 1: Foundation | Complete |
 | LIB-03 | Phase 1: Foundation | Complete |
 | LIB-04 | Phase 3: Discovery and Documentation | Pending |
-| WHSP-01 | Phase 2: Transcription Skill | Pending |
-| WHSP-02 | Phase 2: Transcription Skill | Pending |
-| WHSP-03 | Phase 2: Transcription Skill | Pending |
-| WHSP-04 | Phase 2: Transcription Skill | Pending |
+| WHSP-01 | Phase 2: Transcription Skill | Complete |
+| WHSP-02 | Phase 2: Transcription Skill | Complete |
+| WHSP-03 | Phase 2: Transcription Skill | Complete |
+| WHSP-04 | Phase 2: Transcription Skill | Complete |
 | TRNS-01 | Phase 2: Transcription Skill | Complete |
 | TRNS-02 | Phase 2: Transcription Skill | Complete |
 | TRNS-03 | Phase 2: Transcription Skill | Complete |
