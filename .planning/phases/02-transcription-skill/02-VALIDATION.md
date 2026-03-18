@@ -40,13 +40,13 @@ created: 2026-03-17
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
 | 2-01-01 | 01 | 1 | WHSP-01 | unit | `uv run pytest servers/whisper/tests/test_app.py::test_transcribe -x` | ❌ W0 | ⬜ pending |
 | 2-01-02 | 01 | 1 | WHSP-02 | unit | `uv run pytest servers/whisper/tests/test_app.py::test_health -x` | ❌ W0 | ⬜ pending |
-| 2-01-03 | 01 | 1 | WHSP-03 | unit | `uv run pytest servers/whisper/tests/test_app.py::test_model_selection -x` | ❌ W0 | ⬜ pending |
+| 2-01-03 | 01 | 1 | WHSP-03 | unit | `uv run pytest servers/whisper/tests/test_app.py::test_transcribe_with_model -x` | ❌ W0 | ⬜ pending |
 | 2-01-04 | 01 | 1 | WHSP-04 | unit | `uv run pytest servers/whisper/tests/test_app.py::test_model_preload -x` | ❌ W0 | ⬜ pending |
-| 2-02-01 | 02 | 2 | TRNS-01 | unit | `uv run pytest skills/transcribe/tests/test_cli.py::test_transcribe_success -x` | ❌ W0 | ⬜ pending |
-| 2-02-02 | 02 | 2 | TRNS-02 | unit | `uv run pytest skills/transcribe/tests/test_cli.py::test_format_flag -x` | ❌ W0 | ⬜ pending |
-| 2-02-03 | 02 | 2 | TRNS-03 | unit | `uv run pytest skills/transcribe/tests/test_cli.py::test_model_flag -x` | ❌ W0 | ⬜ pending |
-| 2-02-04 | 02 | 2 | TRNS-04 | unit | `uv run pytest skills/transcribe/tests/test_cli.py::test_output_flushed -x` | ❌ W0 | ⬜ pending |
-| 2-03-01 | 03 | 3 | INFR-01 | unit | `uv run pytest tests/test_launchd.py::test_plist_valid -x` | ❌ W0 | ⬜ pending |
+| 2-02-01 | 02 | 1 | TRNS-01 | unit | `uv run pytest skills/transcribe/tests/test_cli.py::test_transcribe_success -x` | ❌ W0 | ⬜ pending |
+| 2-02-02 | 02 | 1 | TRNS-02 | unit | `uv run pytest skills/transcribe/tests/test_cli.py::test_transcribe_json_format -x` | ❌ W0 | ⬜ pending |
+| 2-02-03 | 02 | 1 | TRNS-03 | unit | `uv run pytest skills/transcribe/tests/test_cli.py::test_model_flag -x` | ❌ W0 | ⬜ pending |
+| 2-02-04 | 02 | 1 | TRNS-04 | structural | N/A — covered by output.py flush=True | N/A | ⬜ pending |
+| 2-03-01 | 03 | 2 | INFR-01 | unit | `uv run pytest tests/test_launchd.py::test_plist_valid -x` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
