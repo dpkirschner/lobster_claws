@@ -28,11 +28,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. HTTP client POST and GET calls to a running server succeed with correct timeout behavior, and connection failures produce error messages that name the service and URL
   4. CLI output follows structured convention: result to stdout, diagnostics to stderr, exit codes 0/1/2
   5. `uv sync` in the monorepo root resolves all workspace members
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — Monorepo scaffolding: root workspace config, .gitignore, claws-common package skeleton
+- [ ] 01-02-PLAN.md — claws-common library modules (host, client, output) with full test coverage
 
 ### Phase 2: Transcription Skill
 **Goal**: An AI agent in the OpenClaw container can transcribe audio files by calling a CLI that proxies to a GPU-accelerated whisper server on the Mac mini host
@@ -70,6 +70,6 @@ Phases execute in numeric order: 1 -> 2 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/? | Not started | - |
+| 1. Foundation | 0/2 | Not started | - |
 | 2. Transcription Skill | 0/? | Not started | - |
 | 3. Discovery and Documentation | 0/? | Not started | - |
