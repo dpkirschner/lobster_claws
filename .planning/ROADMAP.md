@@ -59,10 +59,11 @@ Plans:
   1. Running `claws` with no arguments lists all installed skills discovered via Python entry points
   2. `claws transcribe <file>` routes correctly to the transcribe skill (meta-CLI delegates to sub-skills)
   3. README documents repo structure, skill installation, server setup, and how to add a new skill
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: TBD
+- [ ] 03-01-PLAN.md — Meta-CLI: claws-cli package with entry-point discovery, skill routing, and tests
+- [ ] 03-02-PLAN.md — Project README with repo structure, installation, server setup, and new skill guide
 
 ## Progress
 
@@ -73,4 +74,4 @@ Phases execute in numeric order: 1 -> 2 -> 3
 |-------|----------------|--------|-----------|
 | 1. Foundation | 0/2 | Not started | - |
 | 2. Transcription Skill | 0/3 | Not started | - |
-| 3. Discovery and Documentation | 0/? | Not started | - |
+| 3. Discovery and Documentation | 0/2 | Not started | - |
