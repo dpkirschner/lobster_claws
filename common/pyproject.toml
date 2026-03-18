@@ -1,0 +1,10 @@
+[project]
+name = "claws-common"
+version = "0.1.0"
+description = "Shared client library for Lobster Claws skills"
+requires-python = ">=3.12"
+dependencies = ["httpx>=0.28"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
