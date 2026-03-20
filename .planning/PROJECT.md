@@ -26,8 +26,17 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 ### Active
 
-- [ ] Resy reservation skill + server
-- [ ] Spotify control skill + server
+- [ ] Google auth server with service account + domain-wide delegation
+- [ ] Gmail skill (read, send, search)
+
+## Current Milestone: v1.1 Google Integration + Gmail
+
+**Goal:** Add a reusable Google auth server using Workspace service account delegation, then build a Gmail skill on top of it.
+
+**Target features:**
+- Google auth server on host — holds service account key, serves access tokens to any skill
+- Gmail skill — read inbox, send emails, search by query via Gmail REST API
+- Launchd plist for google-auth server auto-start
 
 ### Out of Scope
 
@@ -35,6 +44,9 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 - Direct external API calls from container — all skills proxy through host servers
 - MCP protocol support — OpenClaw uses CLI-based tool invocation
 - GPU in container — ML inference runs on host Apple Silicon
+- Google Calendar skill — planned for v1.2
+- Per-skill scope enforcement on auth server — simpler open model chosen for now
+- Resy/Spotify skills — deferred, Google integration prioritized
 
 ## Context
 
@@ -67,5 +79,9 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 | argparse over Click/Typer | Single-command tools don't need the overhead | ✓ Good |
 | Entry-point based skill discovery | `claws.skills` group lets skills self-register without central config | ✓ Good |
 
+| Google Workspace for agent identity | Service account + delegation = no OAuth refresh tokens, set-once auth | — Pending |
+| Open token model (any skill, any scope) | Simpler than per-skill ACLs; internal network only | — Pending |
+| Direct Gmail REST API over google-python-client | httpx + bearer token is lighter, matches existing patterns | — Pending |
+
 ---
-*Last updated: 2026-03-18 after v1.0 milestone*
+*Last updated: 2026-03-19 after v1.1 milestone start*
