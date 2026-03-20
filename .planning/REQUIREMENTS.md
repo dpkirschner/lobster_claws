@@ -9,8 +9,8 @@ Requirements for Google Integration + Gmail milestone. Each maps to roadmap phas
 
 ### Client Library
 
-- [ ] **CLI-01**: ClawsClient supports POST with JSON body (`post_json` method)
-- [ ] **CLI-02**: ClawsClient supports GET with query parameters
+- [x] **CLI-01**: ClawsClient supports POST with JSON body (`post_json` method)
+- [x] **CLI-02**: ClawsClient supports GET with query parameters
 
 ### Google Auth
 
@@ -67,8 +67,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CLI-01 | Phase 4 | Pending |
-| CLI-02 | Phase 4 | Pending |
+| CLI-01 | Phase 4 | Complete |
+| CLI-02 | Phase 4 | Complete |
 | AUTH-01 | Phase 4 | Pending |
 | AUTH-02 | Phase 4 | Pending |
 | AUTH-03 | Phase 4 | Pending |

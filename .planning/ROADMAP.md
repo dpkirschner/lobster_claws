@@ -41,7 +41,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Auth server caches tokens and serves cached tokens on repeated requests within the TTL window
   4. Auth server responds to health checks on port 8301 (bound to 127.0.0.1 only)
   5. Auth server starts automatically on boot via launchd and restarts on crash
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 04-01-PLAN.md -- ClawsClient extensions (post_json, get with params)
@@ -74,5 +74,5 @@ Phases execute in numeric order: 4 -> 5
 | 1. Foundation | v1.0 | 2/2 | Complete | 2026-03-18 |
 | 2. Transcription Skill | v1.0 | 3/3 | Complete | 2026-03-18 |
 | 3. Discovery and Documentation | v1.0 | 2/2 | Complete | 2026-03-18 |
-| 4. Google Auth Server | v1.1 | 0/3 | Not started | - |
+| 4. Google Auth Server | 1/3 | In Progress|  | - |
 | 5. Gmail Skill | v1.1 | 0/? | Not started | - |
