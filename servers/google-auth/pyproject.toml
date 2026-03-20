@@ -1,0 +1,18 @@
+[project]
+name = "google-auth-server"
+version = "0.1.0"
+description = "FastAPI token vending server for Google service account delegation"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.135",
+    "uvicorn>=0.42",
+    "google-auth>=2.49",
+    "requests>=2.32",
+]
+
+[project.scripts]
+google-auth-server = "google_auth_server.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
