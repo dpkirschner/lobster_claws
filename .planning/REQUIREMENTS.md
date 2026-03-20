@@ -14,12 +14,12 @@ Requirements for Google Integration + Gmail milestone. Each maps to roadmap phas
 
 ### Google Auth
 
-- [ ] **AUTH-01**: Auth server loads service account JSON key from configured path
-- [ ] **AUTH-02**: Auth server mints access tokens using domain-wide delegation with configurable subject
-- [ ] **AUTH-03**: Auth server caches tokens and refreshes before expiry (~55 min TTL)
-- [ ] **AUTH-04**: Auth server accepts arbitrary scope sets via request parameter
-- [ ] **AUTH-05**: Auth server exposes GET /health endpoint
-- [ ] **AUTH-06**: Auth server binds to 127.0.0.1:8301 (not 0.0.0.0)
+- [x] **AUTH-01**: Auth server loads service account JSON key from configured path
+- [x] **AUTH-02**: Auth server mints access tokens using domain-wide delegation with configurable subject
+- [x] **AUTH-03**: Auth server caches tokens and refreshes before expiry (~55 min TTL)
+- [x] **AUTH-04**: Auth server accepts arbitrary scope sets via request parameter
+- [x] **AUTH-05**: Auth server exposes GET /health endpoint
+- [x] **AUTH-06**: Auth server binds to 127.0.0.1:8301 (not 0.0.0.0)
 - [ ] **AUTH-07**: Auth server managed by launchd plist with auto-start and restart
 
 ### Gmail
@@ -69,12 +69,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | CLI-01 | Phase 4 | Complete |
 | CLI-02 | Phase 4 | Complete |
-| AUTH-01 | Phase 4 | Pending |
-| AUTH-02 | Phase 4 | Pending |
-| AUTH-03 | Phase 4 | Pending |
-| AUTH-04 | Phase 4 | Pending |
-| AUTH-05 | Phase 4 | Pending |
-| AUTH-06 | Phase 4 | Pending |
+| AUTH-01 | Phase 4 | Complete |
+| AUTH-02 | Phase 4 | Complete |
+| AUTH-03 | Phase 4 | Complete |
+| AUTH-04 | Phase 4 | Complete |
+| AUTH-05 | Phase 4 | Complete |
+| AUTH-06 | Phase 4 | Complete |
 | AUTH-07 | Phase 4 | Pending |
 | GMAIL-01 | Phase 5 | Pending |
 | GMAIL-02 | Phase 5 | Pending |
