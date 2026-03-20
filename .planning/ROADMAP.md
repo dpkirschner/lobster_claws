@@ -60,7 +60,7 @@ Plans:
   1. Running `claws calendar create` with title and start/end time creates an event and prints the created event details
   2. Running `claws calendar update <event-id>` with field flags modifies the specified event
   3. Running `claws calendar delete <event-id>` removes the event and confirms deletion
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 07-01-PLAN.md — HTTP helpers and write functions (create_event, update_event, delete_event) with API tests
 - [ ] 07-02-PLAN.md — CLI subcommands (create, update, delete) with flag parsing and CLI tests
@@ -75,4 +75,4 @@ Plans:
 | 4. Google Auth Server | v1.1 | 3/3 | Complete | 2026-03-20 |
 | 5. Gmail Skill | v1.1 | 2/2 | Complete | 2026-03-20 |
 | 6. Calendar Read Operations | v1.2 | 0/2 | Not started | - |
-| 7. Calendar Write Operations | v1.2 | 0/2 | Not started | - |
+| 7. Calendar Write Operations | 1/2 | In Progress|  | - |
