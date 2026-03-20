@@ -24,11 +24,11 @@ Requirements for Google Integration + Gmail milestone. Each maps to roadmap phas
 
 ### Gmail
 
-- [ ] **GMAIL-01**: User can list inbox messages with sender, subject, date, and snippet
-- [ ] **GMAIL-02**: User can read a message by ID with full plain-text body extracted from MIME
-- [ ] **GMAIL-03**: User can send an email with to, subject, and body
-- [ ] **GMAIL-04**: User can search messages using Gmail query syntax (from:, subject:, etc.)
-- [ ] **GMAIL-05**: Gmail skill outputs structured JSON via stdout using claws_common.output
+- [x] **GMAIL-01**: User can list inbox messages with sender, subject, date, and snippet
+- [x] **GMAIL-02**: User can read a message by ID with full plain-text body extracted from MIME
+- [x] **GMAIL-03**: User can send an email with to, subject, and body
+- [x] **GMAIL-04**: User can search messages using Gmail query syntax (from:, subject:, etc.)
+- [x] **GMAIL-05**: Gmail skill outputs structured JSON via stdout using claws_common.output
 - [ ] **GMAIL-06**: Gmail CLI registered as `claws gmail` via entry-point discovery
 
 ## Future Requirements
@@ -76,11 +76,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUTH-05 | Phase 4 | Complete |
 | AUTH-06 | Phase 4 | Complete |
 | AUTH-07 | Phase 4 | Complete |
-| GMAIL-01 | Phase 5 | Pending |
-| GMAIL-02 | Phase 5 | Pending |
-| GMAIL-03 | Phase 5 | Pending |
-| GMAIL-04 | Phase 5 | Pending |
-| GMAIL-05 | Phase 5 | Pending |
+| GMAIL-01 | Phase 5 | Complete |
+| GMAIL-02 | Phase 5 | Complete |
+| GMAIL-03 | Phase 5 | Complete |
+| GMAIL-04 | Phase 5 | Complete |
+| GMAIL-05 | Phase 5 | Complete |
 | GMAIL-06 | Phase 5 | Pending |
 
 **Coverage:**
