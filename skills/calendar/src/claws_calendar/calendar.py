@@ -34,6 +34,40 @@ def _calendar_get(path: str, token: str, params: dict | None = None) -> dict:
     return resp.json()
 
 
+def _calendar_post(path: str, token: str, body: dict) -> dict:
+    """POST request to Google Calendar API."""
+    resp = httpx.post(
+        f"{CALENDAR_BASE}{path}",
+        json=body,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _calendar_put(path: str, token: str, body: dict) -> dict:
+    """PUT request to Google Calendar API."""
+    resp = httpx.put(
+        f"{CALENDAR_BASE}{path}",
+        json=body,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _calendar_delete(path: str, token: str) -> None:
+    """DELETE request to Google Calendar API."""
+    resp = httpx.delete(
+        f"{CALENDAR_BASE}{path}",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+
+
 def date_to_rfc3339(d: date, end_of_day: bool = False) -> str:
     """Convert a date to RFC 3339 timestamp with local timezone.
 
@@ -146,6 +180,111 @@ def get_event(event_id: str) -> dict:
     token = get_access_token()
     data = _calendar_get(f"/events/{event_id}", token)
     return format_event_detail(data)
+
+
+def create_event(
+    title: str,
+    start: str,
+    end: str,
+    *,
+    location: str | None = None,
+    description: str | None = None,
+    attendees: list[str] | None = None,
+    all_day: bool = False,
+) -> dict:
+    """Create a new calendar event.
+
+    Args:
+        title: Event title (summary).
+        start: Start time (RFC 3339) or date (YYYY-MM-DD for all-day).
+        end: End time (RFC 3339) or date (YYYY-MM-DD for all-day).
+        location: Optional event location.
+        description: Optional event description.
+        attendees: Optional list of attendee email addresses.
+        all_day: If True, use date instead of dateTime for start/end.
+
+    Returns:
+        Formatted event detail dict.
+    """
+    token = get_access_token()
+    body: dict = {"summary": title}
+
+    if all_day:
+        body["start"] = {"date": start}
+        body["end"] = {"date": end}
+    else:
+        body["start"] = {"dateTime": start}
+        body["end"] = {"dateTime": end}
+
+    if location:
+        body["location"] = location
+    if description:
+        body["description"] = description
+    if attendees:
+        body["attendees"] = [{"email": e} for e in attendees]
+
+    data = _calendar_post("/events", token, body)
+    return format_event_detail(data)
+
+
+def update_event(
+    event_id: str,
+    *,
+    title: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    location: str | None = None,
+    description: str | None = None,
+    attendees: list[str] | None = None,
+) -> dict:
+    """Update an existing calendar event.
+
+    Only non-None kwargs are included in the update body (partial update).
+
+    Args:
+        event_id: The Calendar event ID to update.
+        title: New event title.
+        start: New start time (RFC 3339).
+        end: New end time (RFC 3339).
+        location: New location.
+        description: New description.
+        attendees: New list of attendee email addresses.
+
+    Returns:
+        Formatted event detail dict.
+    """
+    token = get_access_token()
+    body: dict = {}
+
+    if title is not None:
+        body["summary"] = title
+    if start is not None:
+        body["start"] = {"dateTime": start}
+    if end is not None:
+        body["end"] = {"dateTime": end}
+    if location is not None:
+        body["location"] = location
+    if description is not None:
+        body["description"] = description
+    if attendees is not None:
+        body["attendees"] = [{"email": e} for e in attendees]
+
+    data = _calendar_put(f"/events/{event_id}", token, body)
+    return format_event_detail(data)
+
+
+def delete_event(event_id: str) -> dict:
+    """Delete a calendar event.
+
+    Args:
+        event_id: The Calendar event ID to delete.
+
+    Returns:
+        Confirmation dict with deleted=True and event_id.
+    """
+    token = get_access_token()
+    _calendar_delete(f"/events/{event_id}", token)
+    return {"deleted": True, "event_id": event_id}
 
 
 def handle_calendar_error(e: httpx.HTTPStatusError) -> None:
