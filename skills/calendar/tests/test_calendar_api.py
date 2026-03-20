@@ -4,7 +4,6 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from claws_calendar.calendar import (
     date_to_rfc3339,
     format_event_detail,
@@ -14,7 +13,6 @@ from claws_calendar.calendar import (
     handle_calendar_error,
     list_events,
 )
-
 
 # --- fixtures ---
 
