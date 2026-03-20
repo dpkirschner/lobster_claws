@@ -58,11 +58,11 @@ Plans:
   3. User can send an email with recipient, subject, and body
   4. User can search messages using Gmail query syntax (from:, subject:, etc.)
   5. All Gmail output is structured JSON printed to stdout via claws_common.output, and `claws gmail` is discoverable via the meta-CLI
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
+- [ ] 05-01-PLAN.md -- Gmail API module (token, list, read, send, search, MIME parsing)
+- [ ] 05-02-PLAN.md -- CLI subcommands and workspace wiring
 
 ## Progress
 
@@ -75,4 +75,4 @@ Phases execute in numeric order: 4 -> 5
 | 2. Transcription Skill | v1.0 | 3/3 | Complete | 2026-03-18 |
 | 3. Discovery and Documentation | v1.0 | 2/2 | Complete | 2026-03-18 |
 | 4. Google Auth Server | 1/3 | In Progress|  | - |
-| 5. Gmail Skill | v1.1 | 0/? | Not started | - |
+| 5. Gmail Skill | v1.1 | 0/2 | Not started | - |
