@@ -4,23 +4,26 @@ from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import httpx
-import pytest
+
+
+def _fake_rfc3339(d, *, end_of_day=False):
+    """Fake date_to_rfc3339 that returns a predictable string."""
+    return f"rfc:{d}:{end_of_day}"
 
 
 # --- list: default ---
 
 
 def test_list_default(monkeypatch):
-    """list with no flags calls list_events with next-7-day range, max_results=25."""
+    """list with no flags calls list_events with next-7-day range."""
     monkeypatch.setattr("sys.argv", ["claws-calendar", "list"])
     mock_events = [{"id": "e1", "summary": "Meeting"}]
-
     fake_today = date(2026, 3, 20)
 
     with (
         patch("claws_calendar.cli.date") as mock_date,
         patch("claws_calendar.cli.list_events", return_value=mock_events) as mock_list,
-        patch("claws_calendar.cli.date_to_rfc3339", side_effect=lambda d, **kw: f"rfc:{d}:{kw.get('end_of_day', False)}") as mock_rfc,
+        patch("claws_calendar.cli.date_to_rfc3339", side_effect=_fake_rfc3339),
         patch("claws_calendar.cli.result") as mock_result,
     ):
         mock_date.today.return_value = fake_today
@@ -30,13 +33,14 @@ def test_list_default(monkeypatch):
 
         main()
 
-        # Default: today to today+7
         mock_list.assert_called_once_with(
             time_min=f"rfc:{fake_today}:False",
             time_max=f"rfc:{fake_today + timedelta(days=7)}:False",
             max_results=25,
         )
-        mock_result.assert_called_once_with({"events": mock_events, "result_count": 1})
+        mock_result.assert_called_once_with(
+            {"events": mock_events, "result_count": 1}
+        )
 
 
 # --- list: --today ---
@@ -45,13 +49,12 @@ def test_list_default(monkeypatch):
 def test_list_today(monkeypatch):
     """--today shows events from start of today to start of tomorrow."""
     monkeypatch.setattr("sys.argv", ["claws-calendar", "list", "--today"])
-
     fake_today = date(2026, 3, 20)
 
     with (
         patch("claws_calendar.cli.date") as mock_date,
         patch("claws_calendar.cli.list_events", return_value=[]) as mock_list,
-        patch("claws_calendar.cli.date_to_rfc3339", side_effect=lambda d, **kw: f"rfc:{d}:{kw.get('end_of_day', False)}") as mock_rfc,
+        patch("claws_calendar.cli.date_to_rfc3339", side_effect=_fake_rfc3339),
         patch("claws_calendar.cli.result"),
     ):
         mock_date.today.return_value = fake_today
@@ -77,13 +80,13 @@ def test_list_week(monkeypatch):
 
     # 2026-03-20 is a Friday (weekday=4)
     fake_today = date(2026, 3, 20)
-    monday = fake_today - timedelta(days=fake_today.weekday())  # 2026-03-16
-    next_monday = monday + timedelta(days=7)  # 2026-03-23
+    monday = fake_today - timedelta(days=fake_today.weekday())
+    next_monday = monday + timedelta(days=7)
 
     with (
         patch("claws_calendar.cli.date") as mock_date,
         patch("claws_calendar.cli.list_events", return_value=[]) as mock_list,
-        patch("claws_calendar.cli.date_to_rfc3339", side_effect=lambda d, **kw: f"rfc:{d}:{kw.get('end_of_day', False)}") as mock_rfc,
+        patch("claws_calendar.cli.date_to_rfc3339", side_effect=_fake_rfc3339),
         patch("claws_calendar.cli.result"),
     ):
         mock_date.today.return_value = fake_today
@@ -105,12 +108,15 @@ def test_list_week(monkeypatch):
 
 def test_list_from_to(monkeypatch):
     """--from and --to set both bounds."""
-    monkeypatch.setattr("sys.argv", ["claws-calendar", "list", "--from", "2026-03-20", "--to", "2026-03-25"])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["claws-calendar", "list", "--from", "2026-03-20", "--to", "2026-03-25"],
+    )
 
     with (
         patch("claws_calendar.cli.date") as mock_date,
         patch("claws_calendar.cli.list_events", return_value=[]) as mock_list,
-        patch("claws_calendar.cli.date_to_rfc3339", side_effect=lambda d, **kw: f"rfc:{d}:{kw.get('end_of_day', False)}") as mock_rfc,
+        patch("claws_calendar.cli.date_to_rfc3339", side_effect=_fake_rfc3339),
         patch("claws_calendar.cli.result"),
     ):
         mock_date.today.return_value = date(2026, 3, 20)
@@ -129,12 +135,14 @@ def test_list_from_to(monkeypatch):
 
 def test_list_from_only(monkeypatch):
     """--from only sets time_min, time_max is None."""
-    monkeypatch.setattr("sys.argv", ["claws-calendar", "list", "--from", "2026-03-20"])
+    monkeypatch.setattr(
+        "sys.argv", ["claws-calendar", "list", "--from", "2026-03-20"]
+    )
 
     with (
         patch("claws_calendar.cli.date") as mock_date,
         patch("claws_calendar.cli.list_events", return_value=[]) as mock_list,
-        patch("claws_calendar.cli.date_to_rfc3339", side_effect=lambda d, **kw: f"rfc:{d}:{kw.get('end_of_day', False)}") as mock_rfc,
+        patch("claws_calendar.cli.date_to_rfc3339", side_effect=_fake_rfc3339),
         patch("claws_calendar.cli.result"),
     ):
         mock_date.today.return_value = date(2026, 3, 20)
@@ -153,12 +161,14 @@ def test_list_from_only(monkeypatch):
 
 def test_list_to_only(monkeypatch):
     """--to only sets time_max, time_min is None."""
-    monkeypatch.setattr("sys.argv", ["claws-calendar", "list", "--to", "2026-03-25"])
+    monkeypatch.setattr(
+        "sys.argv", ["claws-calendar", "list", "--to", "2026-03-25"]
+    )
 
     with (
         patch("claws_calendar.cli.date") as mock_date,
         patch("claws_calendar.cli.list_events", return_value=[]) as mock_list,
-        patch("claws_calendar.cli.date_to_rfc3339", side_effect=lambda d, **kw: f"rfc:{d}:{kw.get('end_of_day', False)}") as mock_rfc,
+        patch("claws_calendar.cli.date_to_rfc3339", side_effect=_fake_rfc3339),
         patch("claws_calendar.cli.result"),
     ):
         mock_date.today.return_value = date(2026, 3, 20)
@@ -185,7 +195,7 @@ def test_list_max(monkeypatch):
     with (
         patch("claws_calendar.cli.date") as mock_date,
         patch("claws_calendar.cli.list_events", return_value=[]) as mock_list,
-        patch("claws_calendar.cli.date_to_rfc3339", side_effect=lambda d, **kw: f"rfc:{d}:{kw.get('end_of_day', False)}"),
+        patch("claws_calendar.cli.date_to_rfc3339", side_effect=_fake_rfc3339),
         patch("claws_calendar.cli.result"),
     ):
         mock_date.today.return_value = date(2026, 3, 20)
@@ -226,7 +236,9 @@ def test_http_error_handling(monkeypatch):
 
     mock_response = MagicMock()
     mock_response.status_code = 404
-    error = httpx.HTTPStatusError("not found", request=MagicMock(), response=mock_response)
+    error = httpx.HTTPStatusError(
+        "not found", request=MagicMock(), response=mock_response
+    )
 
     with (
         patch("claws_calendar.cli.get_event", side_effect=error),
@@ -243,7 +255,10 @@ def test_connection_error(monkeypatch):
     monkeypatch.setattr("sys.argv", ["claws-calendar", "get", "evt-001"])
 
     with (
-        patch("claws_calendar.cli.get_event", side_effect=ConnectionError("cannot connect")),
+        patch(
+            "claws_calendar.cli.get_event",
+            side_effect=ConnectionError("cannot connect"),
+        ),
         patch("claws_calendar.cli.crash") as mock_crash,
     ):
         from claws_calendar.cli import main
@@ -257,7 +272,10 @@ def test_timeout_error(monkeypatch):
     monkeypatch.setattr("sys.argv", ["claws-calendar", "get", "evt-001"])
 
     with (
-        patch("claws_calendar.cli.get_event", side_effect=TimeoutError("timed out")),
+        patch(
+            "claws_calendar.cli.get_event",
+            side_effect=TimeoutError("timed out"),
+        ),
         patch("claws_calendar.cli.crash") as mock_crash,
     ):
         from claws_calendar.cli import main
