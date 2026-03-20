@@ -47,7 +47,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Running `claws calendar get <event-id>` prints full event details (title, time, location, description, attendees)
   3. All calendar output is structured JSON printed to stdout via claws_common.output
   4. `claws` meta-CLI discovers and lists the calendar skill
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 06-01-PLAN.md — Package skeleton, Calendar API module (list_events, get_event), and unit tests
+- [ ] 06-02-PLAN.md — CLI entry point with list/get subcommands, date range flags, and CLI tests
 
 ### Phase 7: Calendar Write Operations
 **Goal**: Agent can create, modify, and remove calendar events through the CLI
@@ -68,5 +71,5 @@ Decimal phases appear between their surrounding integers in numeric order.
 | 3. Discovery and Documentation | v1.0 | 2/2 | Complete | 2026-03-18 |
 | 4. Google Auth Server | v1.1 | 3/3 | Complete | 2026-03-20 |
 | 5. Gmail Skill | v1.1 | 2/2 | Complete | 2026-03-20 |
-| 6. Calendar Read Operations | v1.2 | 0/? | Not started | - |
+| 6. Calendar Read Operations | v1.2 | 0/2 | Not started | - |
 | 7. Calendar Write Operations | v1.2 | 0/? | Not started | - |
