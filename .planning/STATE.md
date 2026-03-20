@@ -5,9 +5,9 @@ milestone_name: Google Integration + Gmail
 status: active
 stopped_at: null
 last_updated: "2026-03-19"
-last_activity: 2026-03-19 -- Milestone v1.1 started
+last_activity: 2026-03-19 -- Roadmap created for v1.1 milestone
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,15 +20,17 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-19)
 
-**Core value:** Every skill follows the same pattern: thin CLI in container → HTTP call to host server → stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
-**Current focus:** Defining requirements for v1.1
+**Core value:** Every skill follows the same pattern: thin CLI in container -> HTTP call to host server -> stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
+**Current focus:** Phase 4 - Google Auth Server
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-19 — Milestone v1.1 started
+Phase: 4 of 5 (Google Auth Server)
+Plan: 0 of ? in current phase
+Status: Ready to plan
+Last activity: 2026-03-19 -- Roadmap created for v1.1 milestone
+
+Progress: [----------] 0% (v1.1)
 
 ## Accumulated Context
 
@@ -37,9 +39,10 @@ Last activity: 2026-03-19 — Milestone v1.1 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Milestone]: Google Workspace chosen for agent identity — service account + domain-wide delegation eliminates OAuth refresh token management
-- [Milestone]: Open token model — auth server serves tokens to any skill for any granted scope, no per-skill ACLs
-- [Milestone]: Direct Gmail REST API with httpx + bearer token over google-python-client library
+- [Milestone]: Google Workspace service account + domain-wide delegation (no OAuth refresh tokens)
+- [Milestone]: Open token model -- any skill, any scope; no per-skill ACLs for internal network
+- [Milestone]: Direct Gmail REST API via httpx rather than google-api-python-client
+- [Roadmap]: Two phases (coarse granularity) -- auth server foundation then Gmail skill on top
 
 ### Pending Todos
 
@@ -47,10 +50,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- User needs to set up Google Workspace, create agent user, create service account with domain-wide delegation before auth server can be tested against real Google APIs
+- Domain-wide delegation requires two-console setup (GCP + Workspace Admin). Auth server startup health check must validate end-to-end.
+- Auth server must bind 127.0.0.1 only (not 0.0.0.0) -- security critical.
+- User needs Google Workspace + service account configured before auth server can be tested against real APIs.
 
 ## Session Continuity
 
 Last session: 2026-03-19
-Stopped at: Milestone v1.1 initialization
+Stopped at: Roadmap created for v1.1 milestone
 Resume file: None

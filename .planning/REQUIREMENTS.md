@@ -1,7 +1,7 @@
 # Requirements: Lobster Claws
 
 **Defined:** 2026-03-19
-**Core Value:** Every skill follows the same pattern: thin CLI in container → HTTP call to host server → stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
+**Core Value:** Every skill follows the same pattern: thin CLI in container -> HTTP call to host server -> stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
 
 ## v1.1 Requirements
 
@@ -67,27 +67,27 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CLI-01 | — | Pending |
-| CLI-02 | — | Pending |
-| AUTH-01 | — | Pending |
-| AUTH-02 | — | Pending |
-| AUTH-03 | — | Pending |
-| AUTH-04 | — | Pending |
-| AUTH-05 | — | Pending |
-| AUTH-06 | — | Pending |
-| AUTH-07 | — | Pending |
-| GMAIL-01 | — | Pending |
-| GMAIL-02 | — | Pending |
-| GMAIL-03 | — | Pending |
-| GMAIL-04 | — | Pending |
-| GMAIL-05 | — | Pending |
-| GMAIL-06 | — | Pending |
+| CLI-01 | Phase 4 | Pending |
+| CLI-02 | Phase 4 | Pending |
+| AUTH-01 | Phase 4 | Pending |
+| AUTH-02 | Phase 4 | Pending |
+| AUTH-03 | Phase 4 | Pending |
+| AUTH-04 | Phase 4 | Pending |
+| AUTH-05 | Phase 4 | Pending |
+| AUTH-06 | Phase 4 | Pending |
+| AUTH-07 | Phase 4 | Pending |
+| GMAIL-01 | Phase 5 | Pending |
+| GMAIL-02 | Phase 5 | Pending |
+| GMAIL-03 | Phase 5 | Pending |
+| GMAIL-04 | Phase 5 | Pending |
+| GMAIL-05 | Phase 5 | Pending |
+| GMAIL-06 | Phase 5 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 15 total
-- Mapped to phases: 0
-- Unmapped: 15 ⚠️
+- Mapped to phases: 15
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-19*
-*Last updated: 2026-03-19 after initial definition*
+*Last updated: 2026-03-19 after roadmap creation*
