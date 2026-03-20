@@ -29,7 +29,7 @@ Requirements for Google Integration + Gmail milestone. Each maps to roadmap phas
 - [x] **GMAIL-03**: User can send an email with to, subject, and body
 - [x] **GMAIL-04**: User can search messages using Gmail query syntax (from:, subject:, etc.)
 - [x] **GMAIL-05**: Gmail skill outputs structured JSON via stdout using claws_common.output
-- [ ] **GMAIL-06**: Gmail CLI registered as `claws gmail` via entry-point discovery
+- [x] **GMAIL-06**: Gmail CLI registered as `claws gmail` via entry-point discovery
 
 ## Future Requirements
 
@@ -81,7 +81,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GMAIL-03 | Phase 5 | Complete |
 | GMAIL-04 | Phase 5 | Complete |
 | GMAIL-05 | Phase 5 | Complete |
-| GMAIL-06 | Phase 5 | Pending |
+| GMAIL-06 | Phase 5 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 15 total
