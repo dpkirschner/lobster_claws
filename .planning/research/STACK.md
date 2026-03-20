@@ -1,99 +1,110 @@
 # Stack Research
 
-**Domain:** Python tools monorepo -- CLI skills in Docker + FastAPI servers on Apple Silicon host
-**Researched:** 2026-03-17
+**Domain:** Google auth server + Gmail skill additions to claws monorepo
+**Researched:** 2026-03-19
 **Confidence:** HIGH
 
-## Recommended Stack
+## Recommended Stack (New Dependencies Only)
 
 ### Core Technologies
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| uv | >=0.10 | Package/project manager, workspace orchestration | The standard Python toolchain in 2025-2026. Replaces pip/pip-tools/virtualenv for development. Workspaces give monorepo support with a single lockfile. 10-100x faster than pip. Written by Astral (same team as ruff). |
-| Python | 3.12 | Runtime | Bookworm container ships 3.12. macOS Homebrew ships 3.12/3.13. Target 3.12 for compatibility across both environments. |
-| FastAPI | >=0.135 | HTTP server framework for host services | The standard for Python APIs. Async-native, auto-generates OpenAPI docs, built-in validation via Pydantic. Same ecosystem as Typer (tiangolo). |
-| uvicorn | >=0.42 | ASGI server for FastAPI | The default ASGI server paired with FastAPI. Lightweight, fast, production-ready for single-process servers. |
-| mlx-whisper | >=0.4.3 | Speech-to-text on Apple Silicon | Apple's MLX framework optimized for Metal GPU. 30-40% faster than whisper.cpp on Apple Silicon. Directly loads Hugging Face whisper models. |
-| httpx | >=0.28 | HTTP client for CLI-to-server communication | Modern replacement for requests. Supports both sync and async APIs, HTTP/2, timeouts by default. Used in claws-common for all server calls. |
-| Pydantic | v2 (>=2.10) | Data validation and serialization | Ships with FastAPI. Use for request/response models and configuration. v2 is 5-50x faster than v1. |
+| google-auth | >=2.49 | Service account credentials, JWT signing, domain-wide delegation | Official Google library. Provides `Credentials.from_service_account_file()`, `.with_subject()`, `.with_scopes()` -- the exact primitives needed for domain-wide delegation. Actively maintained (2.49.1 released 2026-03-12). No alternative exists for this task. |
+| requests | >=2.32 | HTTP transport for google-auth token refresh | `google.auth.transport.requests.Request` is the standard transport for exchanging JWTs for access tokens at Google's token endpoint. google-auth has built-in transports for `requests` and `aiohttp` but NOT for httpx. Only needed in the auth server on the host -- never in the container. |
 
-### CLI Framework
+### Reused from Existing Stack (No Changes)
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| argparse | stdlib | CLI argument parsing | Zero dependencies -- critical for container installs. Each claw is a thin CLI that takes a file path and prints output. argparse is sufficient; no need for Click/Typer overhead when the CLI is just `claws-transcribe <file>`. |
+| Technology | Purpose in v1.1 |
+|------------|-----------------|
+| FastAPI >=0.135 | Auth server framework (same pattern as whisper-server) |
+| uvicorn >=0.42 | ASGI server for auth server |
+| httpx >=0.28 | Auth server calls Gmail REST API; Gmail skill calls auth server via ClawsClient |
+| claws-common | Gmail skill uses ClawsClient and output helpers (unchanged) |
+| argparse | Gmail skill CLI argument parsing |
+| hatchling | Build backend for both new packages |
+| pytest + pytest-httpx | Testing both new packages |
+| ruff | Linting both new packages |
 
-**Why NOT Typer/Click:** Each claw CLI is a single-command tool (e.g., `claws-transcribe audio.mp3`). Typer and Click add dependencies and complexity for multi-command apps. argparse from stdlib means zero extra packages in the container. If a claw ever needs subcommands, reassess then.
+## Key Architecture Decision: Direct REST vs google-api-python-client
 
-### Supporting Libraries
+**Decision: Use direct Gmail REST API via httpx. Do NOT use google-api-python-client.**
 
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| python-multipart | >=0.0.18 | Multipart form data parsing | Required by FastAPI for file upload endpoints (`POST /transcribe`). Install alongside FastAPI on the server side. |
-| mlx | >=0.31 | Apple Silicon ML framework | Dependency of mlx-whisper. Provides Metal-accelerated array operations. Only on host (macOS). |
-| pydantic-settings | >=2.7 | Configuration from env vars | Server configuration (port, model name, log level). Loads from environment with type validation. |
+Rationale:
+- The Gmail REST API is simple and well-documented: `GET /gmail/v1/users/{userId}/messages` (list/search), `GET .../messages/{id}` (read), `POST .../messages/send` (send)
+- The auth server already holds credentials and produces access tokens -- it makes Gmail API calls directly with httpx and a bearer token header
+- `google-api-python-client` pulls in `uritemplate`, `google-api-core`, `google-auth-httplib2`, `httplib2`, and `protobuf` -- heavy dependencies for what amounts to adding an `Authorization` header to REST calls
+- The existing codebase uses httpx everywhere; adding httplib2 via the Google client would introduce a second HTTP stack
+- The Gmail skill in the container stays thin (just calls the auth server via ClawsClient) -- no Google libraries needed in the container at all
 
-### Development Tools
+## Key Architecture Decision: Auth Server as API Proxy
 
-| Tool | Version | Purpose | Notes |
-|------|---------|---------|-------|
-| uv | >=0.10 | Package management, virtual envs, workspace | Use `uv sync` for development, `uv run` to execute. Replaces pip/venv/pip-tools. |
-| ruff | >=0.15 | Linting + formatting | Single tool replaces flake8, isort, black, pyflakes. Astral ecosystem (same as uv). Configure in root `pyproject.toml`. |
-| pytest | >=9.0 | Testing | Standard Python test runner. Use with `uv run pytest`. |
-| pytest-httpx | >=0.35 | Mock HTTP calls in tests | For testing CLI packages that call servers via httpx. Cleaner than unittest.mock patching. |
-| mypy | >=1.14 | Type checking | Optional but recommended. FastAPI + Pydantic are fully typed. Catches real bugs. |
+**Decision: The auth server makes Gmail API calls on behalf of the skill. It is NOT a token vending machine.**
 
-## Monorepo Structure
+Rationale:
+- Keeps all Google credentials, token management, and API complexity on the host
+- The skill in the container never touches Google auth, tokens, or Gmail API endpoints
+- Consistent with the whisper-server pattern: skill sends a request, server does the heavy lifting, returns clean JSON
+- Token refresh, caching, and error handling are centralized in one place
+- Adding Calendar later means adding endpoints to the same server, not shipping Google libraries to the container
 
-Use **uv workspaces** for the monorepo. Each package is a workspace member with its own `pyproject.toml`.
+## Token Flow
 
 ```
-lobster_claws/
-  pyproject.toml              # Root workspace config (virtual, not a package itself)
-  uv.lock                     # Single lockfile for all members
-  packages/
-    claws-common/
-      pyproject.toml           # Shared client library
-      src/claws_common/
-    claws-transcribe/
-      pyproject.toml           # CLI skill package
-      src/claws_transcribe/
-  servers/
-    whisper-server/
-      pyproject.toml           # FastAPI server package
-      src/whisper_server/
+Container (Gmail skill)              Host (google-auth server :8301)        Google APIs
++-------------------+               +---------------------------+          +------------------+
+| claws gmail read  |--GET /gmail-->| 1. Load service account   |          |                  |
+|                   |   inbox       |    key from disk           |          |                  |
+| (ClawsClient,     |               | 2. .with_subject(user)    |          |                  |
+|  no Google libs)  |               | 3. .with_scopes([gmail])  |          |                  |
+|                   |               | 4. credentials.refresh()  |--JWT---->| Token endpoint   |
+|                   |               |    (via requests transport)|<-token---|                  |
+|                   |               | 5. httpx GET gmail API    |--------->| Gmail REST API   |
+|                   |<--JSON result-|    with bearer token       |<-JSON---|                  |
++-------------------+               +---------------------------+          +------------------+
 ```
 
-### Root pyproject.toml Pattern
+## Installation
+
+### Auth Server (servers/google-auth/)
 
 ```toml
 [project]
-name = "lobster-claws"
+name = "google-auth-server"
 version = "0.1.0"
+description = "Google API proxy server with service account domain-wide delegation"
 requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.135",
+    "uvicorn>=0.42",
+    "google-auth>=2.49",
+    "requests>=2.32",
+    "httpx>=0.28",
+]
 
-[tool.uv]
-package = false               # Virtual root, not installable
+[project.scripts]
+google-auth-server = "google_auth_server.app:main"
 
-[tool.uv.workspace]
-members = ["packages/*", "servers/*"]
-
-[dependency-groups]
-dev = ["ruff", "pytest", "pytest-httpx", "mypy"]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 ```
 
-### Package pyproject.toml Pattern (CLI skill)
+### Gmail Skill (skills/gmail/)
 
 ```toml
 [project]
-name = "claws-transcribe"
+name = "claws-gmail"
 version = "0.1.0"
+description = "Gmail skill for Lobster Claws"
 requires-python = ">=3.12"
 dependencies = ["claws-common"]
 
 [project.scripts]
-claws-transcribe = "claws_transcribe.cli:main"
+claws-gmail = "claws_gmail.cli:main"
+
+[project.entry-points."claws.skills"]
+gmail = "claws_gmail.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -103,121 +114,106 @@ build-backend = "hatchling.build"
 claws-common = { workspace = true }
 ```
 
-### Container Installation (pip, not uv)
+### Root pyproject.toml additions
 
-The OpenClaw container uses pip, not uv. Packages install via git URL with subdirectory:
+```toml
+[dependency-groups]
+dev = [
+    # ... existing entries ...
+    "google-auth-server",
+    "claws-gmail",
+]
 
-```bash
-pip install --break-system-packages \
-  "claws-common @ git+https://github.com/user/lobster_claws.git#subdirectory=packages/claws-common" \
-  "claws-transcribe @ git+https://github.com/user/lobster_claws.git#subdirectory=packages/claws-transcribe"
+[tool.uv.sources]
+# ... existing entries ...
+google-auth-server = { workspace = true }
+claws-gmail = { workspace = true }
 ```
 
-**Critical:** Each package's `pyproject.toml` must work standalone with pip. The `[tool.uv.sources]` section is uv-specific and ignored by pip. Therefore, `claws-common` must be listed as a normal dependency in `[project.dependencies]` AND as a workspace source in `[tool.uv.sources]`. When pip installs from git, it resolves `claws-common` as a PyPI package name -- so install `claws-common` first, or pin it as a git dependency too.
+## Why requests Is Acceptable Here
 
-**Build backend:** Use `hatchling` (not `uv-build`). hatchling is the standard, works with pip out of the box, and does not require uv on the consumer side. `uv-build` is newer and less battle-tested for pip-only consumers.
+Adding `requests` alongside `httpx` seems like a violation of the "one HTTP library" principle. It is not, because:
 
-## Installation
-
-```bash
-# Development setup (macOS host)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-cd lobster_claws
-uv sync                       # Creates venv, installs all workspace members + dev deps
-
-# Run a specific package
-uv run --package claws-transcribe claws-transcribe audio.mp3
-
-# Run tests
-uv run pytest
-
-# Run a server
-uv run --package whisper-server python -m whisper_server
-
-# Lint and format
-uv run ruff check .
-uv run ruff format .
-```
+1. `requests` is used exclusively as a transport adapter for `google-auth`'s `credentials.refresh()` method. It is never used directly for making API calls.
+2. `google-auth` only ships transports for `requests` and `aiohttp`. There is no httpx transport.
+3. This dependency is confined to the auth server on the host. It never enters the container.
+4. The alternative (writing a custom httpx transport for google-auth) adds complexity and maintenance burden for no user-facing benefit.
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|-------------------------|
-| uv workspaces | Poetry monorepo | Never. Poetry's monorepo support is weak and its resolver is slow. uv has won. |
-| uv workspaces | Standalone pyproject per package (no workspace) | If packages truly have no shared dev tooling. Not this project. |
-| hatchling (build backend) | setuptools | If you need C extensions or complex build steps. setuptools is heavier but more battle-tested for edge cases. |
-| hatchling (build backend) | uv-build | When all consumers use uv. Our container uses pip, so hatchling is safer. |
-| argparse | Click/Typer | If a claw needs subcommands, interactive prompts, or rich help formatting. Not needed for single-command tools. |
-| httpx | requests | Never for new code. requests lacks async support and modern defaults. httpx is the successor. |
-| mlx-whisper | whisper.cpp | If you need CPU-only inference or non-Apple platforms. On Apple Silicon, mlx-whisper is faster. |
-| mlx-whisper | lightning-whisper-mlx | If you need streaming/real-time transcription. Claims 4x faster than mlx-whisper but less maintained. Evaluate if latency matters. |
-| FastAPI | Flask | Never for new async APIs. Flask is sync-first and lacks built-in validation. |
+| google-auth + httpx (direct REST) | google-api-python-client | If you need complex Google API features like batch requests, resumable media upload, or discovery-based endpoint generation. Gmail read/send/search does not need these. |
+| requests (for google-auth transport) | aiohttp (google-auth has async transport) | If the auth server needs high-concurrency token refresh. For a single-user agent making sequential requests, sync transport is simpler. |
+| Single auth server for all Google APIs | Separate servers per Google service | Never. The auth server holds one service account key and serves any Google API. Adding Calendar later means adding endpoints, not a new server. |
+| Auth server as API proxy | Auth server as token vending machine | Never for this project. Token vending leaks complexity into the container (token expiry handling, direct Google API calls, Gmail-specific error handling). |
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| Poetry | Slow resolver, weak monorepo support, losing ecosystem share to uv | uv |
-| setuptools for simple packages | Verbose, requires setup.cfg or setup.py alongside pyproject.toml | hatchling |
-| requests | No async, no HTTP/2, no timeout defaults, maintenance-mode | httpx |
-| Flask | Sync-first, no built-in validation, no auto OpenAPI docs | FastAPI |
-| openai-whisper (original) | Requires PyTorch (huge), no Metal optimization, slow on Apple Silicon | mlx-whisper |
-| Gunicorn | Overkill for single-server-process host services. Adds process management complexity when launchd already handles restarts. | uvicorn directly |
-| Docker Compose for servers | Servers need Metal GPU access. Docker has no Metal passthrough. Servers must run on bare macOS host. | launchd plists |
+| google-api-python-client | Pulls in httplib2, protobuf, uritemplate, google-api-core. Adds ~15MB+ of dependencies for 3 REST endpoints. Creates a second HTTP stack alongside httpx. | Direct httpx calls to Gmail REST API with bearer token from google-auth credentials. |
+| google-auth-httplib2 | Only needed if using google-api-python-client. httplib2 is a legacy HTTP library. | httpx for outbound API calls. |
+| google-auth-oauthlib | For interactive OAuth consent flows. Service accounts with domain-wide delegation do not use OAuth consent. | google-auth with `service_account.Credentials` directly. |
+| oauth2client | Deprecated since 2017. Replaced by google-auth. | google-auth. |
+| simplegmail | Third-party wrapper with heavy dependencies, assumes interactive OAuth user flow. | Direct REST calls via httpx. |
+| Any Google library in the container | Container should stay thin. All Google complexity belongs on the host. | ClawsClient calling the auth server. |
 
-## Stack Patterns by Variant
+## Port Assignment
 
-**If adding a non-ML server (e.g., Resy API proxy):**
-- Same pattern: FastAPI + uvicorn + httpx (for outbound API calls)
-- No mlx dependency
-- Assign next port in 8300+ range
+| Server | Port | Status |
+|--------|------|--------|
+| whisper-server | 8300 | Existing |
+| google-auth-server | 8301 | New -- next in 8300+ range |
 
-**If a CLI skill needs no server (pure local computation):**
-- Still follow the claw pattern with claws-common
-- Skip the server, have the CLI do work directly
-- Rare case -- most skills proxy through host for consistency
+## Gmail API Scopes Needed
 
-**If container needs to install from private repo:**
-- Use deploy keys or GitHub App tokens
-- pip supports `git+https://<token>@github.com/...` syntax
-- Do NOT bake tokens into Docker images; pass via build args or runtime env
+| Scope | Purpose |
+|-------|---------|
+| `https://www.googleapis.com/auth/gmail.readonly` | Read inbox, search messages |
+| `https://www.googleapis.com/auth/gmail.send` | Send emails |
+
+These scopes must be authorized for the service account's client ID in the Google Workspace Admin Console under domain-wide delegation settings.
+
+## Gmail REST API Endpoints Used
+
+| Operation | Method | Endpoint |
+|-----------|--------|----------|
+| List/search messages | GET | `https://gmail.googleapis.com/gmail/v1/users/{userId}/messages?q={query}` |
+| Get message | GET | `https://gmail.googleapis.com/gmail/v1/users/{userId}/messages/{id}` |
+| Send message | POST | `https://gmail.googleapis.com/gmail/v1/users/{userId}/messages/send` |
+
+The `userId` is the delegated user's email address (the `subject` in service account credentials). Can also use `me` when the access token is scoped to a specific user.
 
 ## Version Compatibility
 
 | Package | Compatible With | Notes |
 |---------|-----------------|-------|
-| FastAPI >=0.135 | Pydantic v2 only | FastAPI dropped Pydantic v1 support. Always use v2. |
-| mlx-whisper >=0.4 | mlx >=0.31, Python 3.10+ | macOS only. Requires Apple Silicon (M1+). |
-| httpx >=0.28 | Python 3.8+ | No compatibility concerns. |
-| uv >=0.10 | Python 3.8+ for managed projects | uv itself is a standalone binary, not a Python package in your venv. |
-| hatchling | pip >=21.3 | Bookworm ships pip 23+. No issues. |
+| google-auth >=2.49 | Python >=3.10 | Python 3.8/3.9 EOL. Project requires >=3.12, well within support. |
+| google-auth >=2.49 | requests >=2.20 | google-auth's requests transport has minimal version requirements. |
+| requests >=2.32 | Python >=3.8 | No compatibility concerns with Python 3.12. |
+| FastAPI >=0.135 | uvicorn >=0.42 | Same versions already used by whisper-server. |
+| httpx >=0.28 | Python >=3.12 | Already in use via claws-common. |
 
-## Dual-Environment Constraint
+## Service Account Setup (Prerequisites, Not Code)
 
-This project has a split-brain architecture:
-
-- **Container (consumer):** Python 3.12, pip only, no GPU, Debian Bookworm. Installs `claws-*` packages via `pip install` from git URLs. Cannot use uv features.
-- **Host (developer + server runner):** macOS, Apple Silicon, uv for development, Metal GPU for ML.
-
-Every packaging decision must work in BOTH environments. This means:
-1. Build backend must be pip-compatible (hatchling, not uv-build)
-2. Dependencies in `[project.dependencies]` must be real PyPI packages (not workspace-only references)
-3. `[tool.uv.sources]` overrides are development-only and ignored by pip
-4. Test that `pip install` from git subdirectory works in CI or a clean Docker container
+The auth server needs a service account JSON key file on the host:
+1. Google Cloud project with Gmail API enabled
+2. Service account created with domain-wide delegation enabled in GCP console
+3. Google Workspace Admin Console: authorize service account client ID for Gmail scopes listed above
+4. Key file downloaded to host (e.g., `~/.config/lobster-claws/service-account.json`)
+5. Path to key file configured via environment variable (e.g., `GOOGLE_SERVICE_ACCOUNT_KEY`)
 
 ## Sources
 
-- [uv PyPI](https://pypi.org/project/uv/) -- version 0.10.11 confirmed (2026-03-16)
-- [uv workspaces docs](https://docs.astral.sh/uv/concepts/projects/workspaces/) -- workspace configuration, member resolution
-- [FastAPI PyPI](https://pypi.org/project/fastapi/) -- version 0.135.1 confirmed (2026-03-01)
-- [mlx-whisper PyPI](https://pypi.org/project/mlx-whisper/) -- version 0.4.3 confirmed (2025-08-29)
-- [httpx PyPI](https://pypi.org/project/httpx/) -- version 0.28.1 confirmed
-- [uvicorn PyPI](https://pypi.org/project/uvicorn/) -- version 0.42.0 confirmed (2026-03-16)
-- [ruff PyPI](https://pypi.org/project/ruff/) -- version 0.15.6 confirmed (2026-03-12)
-- [pytest PyPI](https://pypi.org/project/pytest/) -- version 9.0.2 confirmed (2025-12-06)
-- [pip install docs](https://pip.pypa.io/en/stable/cli/pip_install/) -- git URL with #subdirectory syntax
-- [uv pip compatibility](https://docs.astral.sh/uv/pip/compatibility/) -- what uv supports vs pip
+- [google-auth PyPI](https://pypi.org/project/google-auth/) -- version 2.49.1, released 2026-03-12 (HIGH confidence)
+- [google.oauth2.service_account docs](https://googleapis.dev/python/google-auth/latest/reference/google.oauth2.service_account.html) -- Credentials API, with_subject(), with_scopes() (HIGH confidence)
+- [Gmail REST API reference](https://developers.google.com/gmail/api/reference/rest) -- endpoint URLs for messages list/get/send (HIGH confidence)
+- [Google OAuth2 server-to-server guide](https://developers.google.com/identity/protocols/oauth2/service-account) -- domain-wide delegation flow (HIGH confidence)
+- [google-auth user guide](https://googleapis.dev/python/google-auth/latest/user-guide.html) -- transport requirements for credential refresh (HIGH confidence)
+- [google-auth transport.requests docs](https://google-auth.readthedocs.io/en/latest/reference/google.auth.transport.requests.html) -- Request class for token refresh (HIGH confidence)
+- [google-auth GitHub issue #1785](https://github.com/googleapis/google-auth-library-python/issues/1785) -- confirms no ADC shortcut for domain-wide delegation; explicit credential management required (HIGH confidence)
 
 ---
-*Stack research for: Python tools monorepo (Docker CLI + Apple Silicon servers)*
-*Researched: 2026-03-17*
+*Stack research for: Google auth server + Gmail skill*
+*Researched: 2026-03-19*

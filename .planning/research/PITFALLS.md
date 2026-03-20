@@ -1,153 +1,187 @@
 # Pitfalls Research
 
-**Domain:** Python CLI tools monorepo with Docker container / macOS host split architecture
-**Researched:** 2026-03-17
+**Domain:** Google service account auth server + Gmail skill for Docker-to-host CLI architecture
+**Researched:** 2026-03-19
 **Confidence:** HIGH
 
 ## Critical Pitfalls
 
-### Pitfall 1: launchd Does Not Inherit Shell Environment
+### Pitfall 1: Missing `subject` (impersonated user) in delegated credentials
 
 **What goes wrong:**
-The whisper server (and future host servers) managed by launchd cannot find Python, mlx-whisper, or any Homebrew-installed binaries. The server fails silently or crashes on load because PATH, PYTHONPATH, and other environment variables from your shell (.zshrc) are not available to launchd-managed processes.
+Service account credentials are created without specifying which domain user to impersonate. Gmail API calls return `400 Precondition check failed` or `403 Forbidden`. This is the single most common failure when integrating Gmail with service accounts. The error message gives zero indication that the fix is adding a `subject` parameter.
 
 **Why it happens:**
-launchd launches processes in a minimal environment -- not a shell. It does not source .zshrc, .bash_profile, or any shell configuration. Developers test servers by running them in a terminal (where everything works) and then are surprised when the same command fails under launchd. Shell globbing and variable expansion (like `~` or `$HOME`) also do not work in plist EnvironmentVariables.
+Domain-wide delegation requires two things: (1) the service account has delegation enabled in GCP, and (2) every API call specifies which domain user to act as via `credentials.with_subject("user@domain.com")`. Developers assume the service account can access Gmail directly -- it cannot. Gmail has no concept of a service account's own mailbox. The service account must always impersonate a real user.
 
 **How to avoid:**
-- Use absolute paths for everything in the plist: the executable, the working directory, log paths.
-- Explicitly set PATH and any required env vars in the plist's `EnvironmentVariables` dictionary. Include `/opt/homebrew/bin` for Homebrew on Apple Silicon.
-- Never use `~` in plist values -- always use `/Users/little-dank/...`.
-- Test the server by launching it via `launchctl` before considering it done. Never rely on "it works from terminal."
+The auth server's `/token` endpoint must require a `subject` parameter (the email to impersonate) whenever the requested scopes include Gmail (or any user-scoped Google API). Return `400` with a clear message if `subject` is missing. Never default `subject` to the service account email.
 
 **Warning signs:**
-- Server works when started manually from terminal but not after reboot.
-- `launchctl list | grep <label>` shows the service with a non-zero exit status.
-- Log files (if configured) show "command not found" or import errors.
+- `Precondition check failed` from Gmail API
+- `403 Forbidden` with no further detail
+- Token generation succeeds but downstream API calls fail
+- "Works" for Drive/Calendar but fails for Gmail (all require subject, but Gmail gives the worst errors)
 
 **Phase to address:**
-Phase 1 (Infrastructure/Foundation) -- the launchd plist must be correct from day one or every server will inherit the same broken setup.
+Auth server design -- the `/token` endpoint contract must require `subject` for user-scoped APIs from the start.
 
 ---
 
-### Pitfall 2: Local Path Dependencies Break pip install from Git URLs
+### Pitfall 2: Service account JSON key file leaking into containers or git
 
 **What goes wrong:**
-`claws-transcribe` depends on `claws-common`. If you specify this as a local path dependency in pyproject.toml (e.g., `claws-common = {path = "../claws-common"}`), then `pip install git+https://github.com/...` from inside the Docker container will fail. pip resolves git URLs by cloning the repo, but local path references resolve relative to the cloned temp directory, not the monorepo root. The install breaks with "directory does not exist."
+The service account key file (JSON containing a private RSA key) gets committed to git, baked into a Docker image, or passed as an environment variable. This key never expires and grants full delegation access to every user in the Google Workspace domain -- all email, all calendar, all drive -- forever.
 
 **Why it happens:**
-Python packaging standards (PEP 508, pyproject.toml) support path dependencies for local development, but these are inherently non-portable. They work with editable installs during development but fail for any remote install path (git URLs, PyPI, etc.). This is a fundamental tension in Python monorepos.
+The key looks harmless (just JSON). The path of least resistance is to copy it wherever it is needed. In this architecture specifically, the temptation is to mount the key into the Docker container so the Gmail skill can authenticate directly, bypassing the auth server entirely.
 
 **How to avoid:**
-- Publish `claws-common` as a proper dependency: either to a private PyPI index, or more practically, specify it as a separate `pip install git+https://...#subdirectory=claws-common` dependency.
-- In the install instructions (or a requirements.txt / install script), install claws-common first, then claws-transcribe.
-- In pyproject.toml, list `claws-common` as a normal dependency name (not a path), and ensure it is already installed before installing any claw that depends on it.
-- Consider a thin install script or Makefile target that installs packages in dependency order from git URLs.
+The key file lives ONLY on the host Mac mini, readable only by the auth server process. Store it outside the repo entirely: `~/.config/lobster-claws/service-account.json`. The entire architectural purpose of the auth server is that containers never touch the key -- they request short-lived (1-hour) access tokens over HTTP. Add `*service-account*` and `*credentials*.json` patterns to `.gitignore` immediately.
 
 **Warning signs:**
-- `pip install` works locally but fails in CI or fresh Docker containers.
-- pyproject.toml contains `{path = "..."}` references.
-- Install instructions require being in a specific directory to work.
+- Any `.json` key file reference in Dockerfile, docker-compose, or skill code
+- `GOOGLE_APPLICATION_CREDENTIALS` environment variable set in container context
+- Key file anywhere inside the repo directory tree
+- Skill code importing `google.oauth2.service_account` directly
 
 **Phase to address:**
-Phase 1 (Package Structure) -- getting the dependency chain right is foundational. If you get this wrong, every new claw inherits the problem.
+Auth server foundation -- key storage location must be decided before any code exists.
 
 ---
 
-### Pitfall 3: host.docker.internal Resolution Failures Are Silent and Confusing
+### Pitfall 3: Two-console delegation setup -- GCP Console is not enough
 
 **What goes wrong:**
-The CLI tool inside the container makes an HTTP call to `host.docker.internal:8301` and gets a connection timeout, connection refused, or DNS resolution failure. The error messages from urllib/httpx/requests are generic networking errors that do not hint at the Docker-specific root cause. Debugging is painful because networking works fine from the host.
+Code is correct, service account exists, delegation checkbox is enabled in GCP Console, but Gmail API calls fail with `401 Unauthorized` or `403 Insufficient Permission`. The developer spends hours debugging code when the problem is an admin console configuration step they never performed.
 
 **Why it happens:**
-Several failure modes: (1) `host.docker.internal` requires `extra_hosts` configuration in Docker Compose on Linux (macOS Docker Desktop adds it automatically, but OpenClaw may run on Linux too). (2) The host server is bound to `127.0.0.1` instead of `0.0.0.0`, so it rejects connections from the Docker bridge network. (3) macOS firewall silently blocks incoming connections from the container. (4) The server is not running, and the error looks identical to a networking misconfiguration.
+Domain-wide delegation requires configuration in TWO separate admin consoles:
+1. **GCP Console:** Create service account, check "Enable domain-wide delegation"
+2. **Google Workspace Admin Console:** Security > API Controls > Domain-wide Delegation > Add the service account's Client ID + authorize specific OAuth scope strings
+
+Developers complete step 1 and assume step 2 happened automatically. It did not. The scope strings must match exactly, including the full `https://www.googleapis.com/auth/gmail.readonly` URL format.
 
 **How to avoid:**
-- In claws-common's HTTP client, add specific error handling that distinguishes "server not running" from "host not reachable" and provides actionable error messages (e.g., "Cannot reach host server. Is the whisper server running? Check: curl http://host.docker.internal:8301/health").
-- Always bind FastAPI servers to `0.0.0.0`, not `127.0.0.1`.
-- Add a `/health` endpoint to every server and have the CLI check it before making the real request (or at least on failure, to differentiate causes).
-- Document the `OPENCLAW_TOOLS_HOST` env var override prominently for non-standard setups.
+The auth server must validate delegation works on startup by making a real API call (e.g., `GET https://gmail.googleapis.com/gmail/v1/users/{subject}/profile`). If it fails, log the exact error and the exact Admin Console URL where scopes need to be configured. Document the setup steps with the exact scope strings needed.
 
 **Warning signs:**
-- "Connection refused" errors that come and go.
-- Works on one machine but not another.
-- Adding `print(socket.getaddrinfo("host.docker.internal", 8301))` shows resolution but connection still fails.
+- Auth server starts without errors but all token-consuming API calls fail
+- Works for one scope but not another (partial scope authorization)
+- `401` or `403` only when calling Google APIs, not during token generation itself
 
 **Phase to address:**
-Phase 1 (claws-common client library) -- the shared HTTP client must handle this gracefully from the start.
+Auth server implementation -- startup health check must validate end-to-end delegation, not just key file loading.
 
 ---
 
-### Pitfall 4: Python stdout Buffering Swallows CLI Output in Docker
+### Pitfall 4: Token caching done wrong -- stale tokens or no caching
 
 **What goes wrong:**
-The CLI tool runs, makes the HTTP call, gets the transcription result, prints it to stdout... but the agent sees no output. Or it sees partial output. The tool appears to hang or produce empty results.
+Two failure modes: (A) No caching -- every CLI invocation generates a new JWT, exchanges it for an access token via Google's token endpoint, adding 200-500ms latency per call and risking rate limits. (B) Tokens cached past their 3600-second lifetime -- API calls fail with `401 Invalid Credentials` and the skill has no retry path.
 
 **Why it happens:**
-Python buffers stdout when it detects a non-interactive terminal (which is the case inside Docker containers when invoked programmatically). The buffer is 8KB by default. If the CLI prints less than 8KB and exits without flushing, the output may be lost. This is a classic Docker + Python pitfall that has bitten countless projects.
+Google access tokens expire after exactly 1 hour (3600 seconds). The `google-auth` library handles refresh automatically when used with the Google API client library, but this project uses direct REST calls via httpx (matching the established pattern). Token lifecycle must be managed manually in the auth server.
 
 **How to avoid:**
-- Set `PYTHONUNBUFFERED=1` in the environment, or use `python -u` when invoking CLIs.
-- Better yet, in each CLI's entry point, explicitly call `sys.stdout.reconfigure(line_buffering=True)` or use `print(..., flush=True)`.
-- In claws-common, provide a utility output function that always flushes.
+Cache tokens in the auth server keyed by `(subject, frozenset(scopes))`. Set expiry conservatively to 3500 seconds (100-second safety buffer). Return both the token and its expiry timestamp from the `/token` endpoint so skills can cache locally and skip redundant auth server calls. Use `google.oauth2.service_account.Credentials` for JWT creation and signing -- do not hand-roll JWT construction.
 
 **Warning signs:**
-- CLI works interactively but produces no output when called by the agent.
-- Output appears only after a long delay or when the process exits.
-- Adding more print statements "fixes" the issue (because more output fills the buffer).
+- Noticeable latency (~500ms) on every `claws gmail` command (no caching)
+- Intermittent `401` errors after ~1 hour of continuous use (stale cache)
+- High request volume to `oauth2.googleapis.com` visible in server logs
 
 **Phase to address:**
-Phase 1 (claws-common / CLI skeleton) -- this must be baked into the shared tooling so every claw inherits it.
+Auth server implementation -- token caching is core server logic, not an optimization to add later.
 
 ---
 
-### Pitfall 5: --break-system-packages Dependency Conflicts Corrupt Container Python
+### Pitfall 5: Gmail send requires base64url encoding, not standard base64
 
 **What goes wrong:**
-Installing claws packages with `pip install --break-system-packages` overwrites or conflicts with system Python packages in the node:24-bookworm container. A subsequent OpenClaw operation that depends on a system Python package (or another pip-installed tool) breaks because the wrong version is now installed.
+Emails sent via `POST /gmail/v1/users/{userId}/messages/send` are rejected with `400 Invalid Message` or arrive garbled. The `raw` field must be base64**url**-encoded (RFC 4648 section 5, using `-_` instead of `+/`, no `=` padding), but developers use Python's `base64.b64encode()` which produces standard base64.
 
 **Why it happens:**
-PEP 668 exists specifically because mixing pip-installed packages with distro-managed packages is dangerous. `--break-system-packages` is a "I know what I'm doing" escape hatch, not a best practice. The node:24-bookworm image may have system Python packages that claws dependencies conflict with.
+A one-character function name difference: `b64encode()` vs `urlsafe_b64encode()`. Standard base64 uses `+` and `/` characters which are not URL-safe. The Gmail API docs mention "base64url" but do not emphasize the difference from standard base64. Python's `urlsafe_b64encode()` still adds `=` padding which must also be stripped.
 
 **How to avoid:**
-- Keep claws dependencies minimal. claws-common should depend on httpx (or requests) and nothing else exotic.
-- Pin dependency versions in pyproject.toml to avoid accidental upgrades of system packages.
-- Test installs on a fresh node:24-bookworm container to catch conflicts early.
-- If conflicts become a problem, consider installing into a venv even inside the container (the CLI entry point would need a wrapper script).
-- Never install heavy ML libraries in the container -- that is what the host servers are for.
+Write a dedicated helper and test it:
+```python
+import base64
+def encode_message(mime_bytes: bytes) -> str:
+    return base64.urlsafe_b64encode(mime_bytes).decode("ascii").rstrip("=")
+```
+Unit test: verify output contains no `+`, `/`, or `=` characters.
 
 **Warning signs:**
-- pip warnings about "replacing distro-installed package" during install.
-- Other Python tools in the container breaking after claw installation.
-- Different behavior between fresh and repeatedly-updated containers.
+- `400` errors when sending but not when reading mail
+- Sent emails with garbled subjects or body content
+- Tests pass with mocked API but fail against real Gmail
 
 **Phase to address:**
-Phase 1 (Package Structure) -- dependency minimalism must be enforced from the start.
+Gmail skill implementation -- encoding helper should be written and tested before any send logic.
 
 ---
 
-### Pitfall 6: MLX Whisper Memory Accumulation on Long-Running Server
+### Pitfall 6: ClawsClient lacks methods needed for JSON API calls
 
 **What goes wrong:**
-The whisper server works great for the first few transcriptions, then slows down dramatically or crashes with memory errors. macOS shows memory pressure warnings. The Mac mini becomes sluggish.
+The Gmail skill needs to POST JSON bodies (sending mail), make GET requests with custom headers (Bearer auth), and potentially DELETE. The existing `ClawsClient` only has `get()` and `post_file()`. Developers either hack around the limitation with raw httpx calls or extend ClawsClient inconsistently per-skill, breaking the established error handling patterns.
 
 **Why it happens:**
-MLX uses Metal GPU memory (unified memory on Apple Silicon). Without explicit cache clearing between transcriptions, GPU memory accumulates across requests. Large audio files with large models (large-v3 on 16GB) can exhaust available memory in a single request. The model stays loaded in memory (which is good for latency) but intermediate buffers from previous transcriptions may not be freed.
+`ClawsClient` was designed for whisper's simple use case: health check GET and file upload POST. The auth server and Gmail skill need `post_json()`, and the Gmail skill needs to pass Bearer tokens to the auth server's responses through to Google. The client was never designed for this flow.
 
 **How to avoid:**
-- Clear MPS/MLX cache after each transcription request.
-- Set a maximum audio file size/duration and reject files that exceed it with a clear error.
-- Monitor memory in the /health endpoint (report available memory).
-- Use `mlx.core.metal.clear_cache()` (or equivalent) after each inference.
-- Consider batch_size tuning -- default of 12 is fine for most cases, but reduce for the large-v3 model on 16GB machines.
+Extend `ClawsClient` in `claws-common` BEFORE building the auth server or Gmail skill. Add `post_json(path, data, headers=None)` at minimum. Keep the same `ConnectionError`/`TimeoutError` wrapping with service-aware messages. This is a prerequisite for the auth and Gmail work.
 
 **Warning signs:**
-- Transcription time increases over successive requests without restart.
-- `memory_pressure` command shows yellow/red state.
-- Server process memory grows monotonically in Activity Monitor.
+- Raw `httpx.post()` or `httpx.get()` calls appearing in skill code
+- Duplicated try/except blocks outside ClawsClient
+- Inconsistent timeout behavior between skills
 
 **Phase to address:**
-Phase 2 (Whisper Server) -- must be implemented when building the transcription endpoint, not retrofitted.
+Common library update -- must happen before auth server or Gmail skill work begins.
+
+---
+
+### Pitfall 7: Auth server bound to 0.0.0.0 exposes token minting to entire network
+
+**What goes wrong:**
+The auth server listens on `0.0.0.0:8301` (following the whisper server pattern of binding to all interfaces). Any device on the local network can request access tokens for any user in the domain. On a home network this might be acceptable risk; on a shared network it is a full domain compromise.
+
+**Why it happens:**
+The whisper server binds to `0.0.0.0` because Docker containers need to reach it via `host.docker.internal`, which on Docker Desktop for Mac resolves to the host's IP on the Docker bridge. Developers copy this pattern for the auth server without considering that the auth server is fundamentally more sensitive -- it mints credentials rather than just processing audio.
+
+**How to avoid:**
+Bind the auth server to `127.0.0.1` only. On Docker Desktop for Mac, `host.docker.internal` resolves to `127.0.0.1` from the container's perspective (the host loopback), so binding to localhost still allows container access. This is a Docker Desktop for Mac specific behavior -- document it clearly. If the project ever moves to Linux Docker, this will need revisiting with firewall rules.
+
+**Warning signs:**
+- `netstat` or `lsof` showing the auth server listening on `*:8301` or `0.0.0.0:8301`
+- Auth server accessible from other devices on the network
+- No authentication between skill and auth server
+
+**Phase to address:**
+Auth server foundation -- bind address decision must be made at server creation time.
+
+---
+
+### Pitfall 8: Gmail API not enabled in the service account's GCP project
+
+**What goes wrong:**
+API calls fail with `403 Access Not Configured` or `403 Gmail API has not been used in project XXXXX`. The service account belongs to one GCP project, but the Gmail API is enabled in a different project, or not enabled at all.
+
+**Why it happens:**
+GCP projects proliferate. Developers enable APIs in whichever project they have open. The Gmail API must be enabled in the same project that owns the service account. This is a 30-second fix once identified, but can waste hours of debugging because the error message references a project number (not name) that may not be immediately recognizable.
+
+**How to avoid:**
+The auth server startup health check (same one that validates delegation) will catch this. Log the project ID from the service account key file at startup so it is always clear which project is in play.
+
+**Warning signs:**
+- Error messages mentioning "project" or "API not enabled"
+- Service account email address domain (`xxx@project-id.iam.gserviceaccount.com`) does not match expected project
+
+**Phase to address:**
+Auth server implementation -- covered by the same startup health check as Pitfall 3.
 
 ---
 
@@ -155,97 +189,108 @@ Phase 2 (Whisper Server) -- must be implemented when building the transcription 
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Hardcoding `host.docker.internal` in each claw | Quick to ship first claw | Every claw duplicates host resolution logic; changing the pattern requires editing all claws | Never -- this is why claws-common exists |
-| No health check endpoint | Faster server development | Cannot distinguish "server down" from "network broken" from "server overloaded" | Never -- /health is trivial to add |
-| Inline error messages in each CLI | Avoids claws-common dependency | Inconsistent error formatting; agent gets confused by varying error patterns | Only in prototyping; standardize before v1 |
-| Single requirements.txt instead of pyproject.toml | Simpler initial setup | No proper metadata, no version constraints, breaks pip install from git URLs | Never for installable packages |
-| Skipping launchd plist validation | Faster iteration | Server silently fails on reboot, discovered days later | Never |
+| Hardcoded impersonation subject in auth server | Skip parameterization, faster to build | Cannot add Calendar/Drive skills for other users; locks to one email address | Never -- always parameterize subject on the `/token` endpoint |
+| Using `google-api-python-client` in the container skill | Familiar API, handles pagination and discovery | Pulls 15+ transitive dependencies into the container (protobuf, google-auth, uritemplate, etc.), conflicts with the thin-CLI httpx-only pattern | Never -- use direct REST via httpx to match existing architecture |
+| Skipping token caching | Simpler auth server implementation | 200-500ms latency per CLI call, risk hitting Google token endpoint rate limits | Only during initial prototyping; must be added before any skill uses it |
+| Single hardcoded scope set | Simpler token endpoint | Cannot request different scopes for different operations (read-only vs send) | Acceptable for v1.1 while only Gmail exists; refactor when Calendar is added |
+| No retry on Google API 429/5xx | Simpler skill code | Agent hits rate limits during batch inbox reads | Acceptable for v1.1 -- single user, low volume; add when batch operations are needed |
+| Inlining MIME construction | Fewer abstractions | Cannot reuse for Calendar invites, Drive sharing notifications | Acceptable for v1.1; extract when second email-sending use case appears |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Docker `extra_hosts` | Assuming host.docker.internal exists everywhere | OpenClaw already configures this, but verify it in claws-common with a clear error if resolution fails |
-| File paths across container/host boundary | Passing container file paths to host server | Audio files must be uploaded (multipart POST) or accessible via a shared volume mount -- do not assume path equivalence |
-| launchd service management | Using `launchctl load/unload` (deprecated) | Use `launchctl bootstrap/bootout` on modern macOS (10.10+) |
-| pip install from git with subdirectory | Omitting `#subdirectory=` fragment | Use `pip install "git+https://github.com/user/repo.git#subdirectory=packages/claws-common"` |
-| FastAPI file upload size | Default upload limits in uvicorn | Set explicit `--limit-max-request-size` for large audio files (default is ~1MB, audio files can be 50MB+) |
+| Service account JWT signing | Hand-rolling JWT with PyJWT or similar | Use `google.oauth2.service_account.Credentials` -- handles claims format, RS256 signing, and token exchange correctly |
+| Gmail `messages.list` | Assuming response contains full message bodies | `messages.list` returns only message IDs and thread IDs; must call `messages.get` per message for headers/body |
+| Gmail `messages.send` userId | Using literal string `"me"` as userId | `"me"` works IF the access token was created with correct `subject`; use the actual impersonated email for clarity and debuggability |
+| Gmail message format | Requesting `format=full` for inbox listing | Use `format=metadata` with `metadataHeaders=["From","Subject","Date"]` for listing; `format=full` only for individual message reads -- saves 20x quota |
+| Auth server port | Using port 8300 (already taken by whisper-server) | Use 8301 for google-auth server; document in CLAUDE.md port registry |
+| Gmail OAuth scopes | Using `https://mail.google.com/` (unrestricted full access) | Use minimal scopes: `gmail.readonly` for reading, `gmail.send` for sending, `gmail.modify` for label changes |
+| Token endpoint design | Returning only the access token string | Return `{"access_token": "...", "expires_at": 1234567890}` so skills can cache locally and know when to refresh |
+| Gmail search queries | Building complex query strings without URL encoding | Use httpx `params={"q": query}` which handles encoding automatically; do not manually construct query strings |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Loading Whisper model on every request | First request takes 30+ seconds, all requests slow | Load model once at server startup (module-level or lifespan event), keep in memory | Immediately -- even one user notices |
-| Synchronous file upload in FastAPI | Server blocks during large file upload, other requests queue | Use `async def` endpoints with `UploadFile` (FastAPI handles this correctly by default, but do not wrap in sync executor) | At 2+ concurrent requests |
-| DNS resolution on every HTTP call | Adds 5-50ms latency to every CLI invocation | Resolve host once in claws-common client init, cache the result | Noticeable at high call frequency |
-| Transcribing uncompressed WAV files | Huge upload times, unnecessary bandwidth | Accept compressed formats (mp3, opus, m4a); if WAV arrives, document but do not re-encode in the CLI | Files over 10MB |
+| No token caching in auth server | Every CLI call takes 500ms+ for auth roundtrip | Cache tokens by `(subject, frozenset(scopes))` with 3500s TTL | Noticeable immediately on every single command |
+| Fetching full message bodies in list operations | Slow inbox queries, burns 5 quota units per message instead of 5 for the whole list | Use `messages.list` for IDs, then selective `messages.get` with `format=metadata` | More than 10 messages per query |
+| No skill-side token caching | Every CLI call hits auth server even when token is still valid | Auth server returns `expires_at`; skill caches token locally until near-expiry | Noticeable when running multiple gmail commands in sequence |
+| Synchronous token refresh blocking requests | Auth server hangs while refreshing an expired token; concurrent requests queue behind it | Refresh proactively when token is within 5 minutes of expiry, not on-demand | Under concurrent use (multiple skills calling auth server simultaneously) |
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Host server bound to 0.0.0.0 without any access control | Any device on the local network can hit the whisper server and run inference | Bind to 0.0.0.0 (needed for Docker) but add a simple shared secret header or restrict to Docker bridge subnet. For a Mac mini on a home network, this is low risk but still worth a middleware check. |
-| No input validation on uploaded files | Malformed or malicious files could crash the server or cause excessive resource usage | Validate file type (magic bytes, not just extension), enforce size limits, set transcription timeout |
-| Exposing server error tracebacks to CLI output | Internal server details leak to agent context | Use FastAPI exception handlers to return clean error messages; log full tracebacks server-side only |
-| Storing API keys in plist files | Keys visible in plain text, committed to repo | Use macOS Keychain or environment variables loaded from a separate .env file excluded from git |
+| Service account key in repo or Docker image | Full domain-wide delegation to all users' email, calendar, drive -- forever (key never expires) | Key lives only on host filesystem outside repo; `.gitignore` blocks `*service-account*` and `*credentials*.json`; auth server is sole consumer |
+| Overly broad OAuth scopes in Admin Console | Service account can read, modify, and delete all users' email | Authorize minimum scopes in Admin Console: `gmail.readonly`, `gmail.send`, `gmail.modify`; never `https://mail.google.com/` |
+| Auth server on 0.0.0.0 | Any device on local network can mint tokens for any domain user | Bind to `127.0.0.1`; Docker Desktop for Mac reaches host loopback via `host.docker.internal` |
+| Logging access tokens | Tokens visible in server logs, launchd stdout/stderr logs, Console.app | Never log token values; log token metadata only: subject, scopes, expiry time, request timestamp |
+| No audit trail for token requests | Cannot determine which skill impersonated which user, or when | Log every `/token` request with timestamp, requested subject, scopes, and requesting IP |
+| Passing token via query parameter | Token visible in server access logs, browser history, proxy logs | Always pass tokens in `Authorization: Bearer` header, never in URLs |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| CLI prints raw JSON or HTTP errors | Agent cannot parse the output; conversation degrades | Print clean, human-readable text. On error, print a single-line error message the agent can relay to the user |
-| No progress indication for long transcriptions | Agent (and user) think the tool is hung | Print a brief status line before starting ("Transcribing 45s of audio...") and the result after |
-| Failing silently on partial transcription | User gets incomplete text without knowing it | Always indicate if transcription was truncated or if errors occurred during processing |
-| Inconsistent exit codes | Agent cannot distinguish success from failure | Exit 0 on success, exit 1 on user-fixable errors (with message), exit 2 on infrastructure errors |
+| Passing raw Google API errors to the agent | Agent gets `400 Precondition check failed` with no context | Translate Google errors: "Gmail delegation not configured for user@domain.com. Admin must authorize scopes in Workspace Admin Console." |
+| No way to verify auth setup | Agent tries Gmail, gets cryptic error, cannot tell if setup or runtime issue | `claws gmail check` subcommand that validates: auth server running, delegation configured, Gmail API enabled, test email fetch works |
+| Email send appears to succeed but is queued | Agent reports "sent" but email is stuck | Verify `messages.send` response contains `id` and `labelIds` includes `SENT`; report actual status |
+| Gmail search syntax undocumented | Agent cannot construct queries | Skill `--help` and error output should include common query examples: `from:boss@co.com`, `subject:invoice`, `newer_than:1d`, `is:unread` |
+| No inbox summary -- just raw message dumps | Agent overwhelmed by full message content for every email | Default `list` to showing From, Subject, Date, snippet; require explicit `read <id>` for full body |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **launchd plist:** Often missing `EnvironmentVariables` with correct PATH -- verify server starts after full reboot (not just `launchctl kickstart`)
-- [ ] **pip install from git URL:** Often works locally but fails in container -- verify install in a fresh `node:24-bookworm` container
-- [ ] **File upload size:** Often tested with small files only -- verify with a 30-minute audio file (50MB+)
-- [ ] **Error handling:** Often only tests the happy path -- verify behavior when server is down, when file does not exist, when audio format is unsupported
-- [ ] **Host resolution:** Often only tested on macOS Docker Desktop -- verify OPENCLAW_TOOLS_HOST override works
-- [ ] **stdout flushing:** Often works in interactive testing -- verify output appears when CLI is invoked non-interactively by OpenClaw agent
-- [ ] **Memory after 20+ transcriptions:** Often tested with 1-2 files -- run a batch of 20 transcriptions and check server memory
+- [ ] **Auth server token endpoint:** Returns tokens -- but does it handle expiry and refresh? Test by waiting > 1 hour with a cached token.
+- [ ] **Auth server health check:** Starts without error -- but does it validate actual delegation with a real API call, or just check the key file exists?
+- [ ] **Gmail send:** Sends one test email -- but does it handle CC/BCC, reply-to-thread (`threadId`), and HTML bodies? Verify MIME construction covers these.
+- [ ] **Gmail list:** Returns messages -- but does it handle pagination for inboxes with > 100 messages? Check `nextPageToken` handling.
+- [ ] **Gmail search:** Returns results -- but does it handle zero results without erroring? Must return empty list, not crash.
+- [ ] **Admin Console scopes:** Delegation works for `gmail.readonly` -- but are ALL required scopes authorized? Missing `gmail.send` means send silently fails.
+- [ ] **Port 8301:** Auth server runs -- but is the port documented in CLAUDE.md, launchd plist, and the skill's default config?
+- [ ] **Error handling:** Skill handles auth server connection errors -- but does it distinguish "auth server down" from "Google API rejected the request" from "invalid subject email"?
+- [ ] **Token in logs:** Server runs fine -- but check launchd stdout/stderr log files for any token values leaking into plaintext logs.
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| launchd env vars wrong | LOW | Fix plist, `launchctl bootout` + `launchctl bootstrap`, verify with `launchctl print` |
-| Path dependencies break remote install | MEDIUM | Restructure pyproject.toml to use named dependencies, create install script for ordering, update all install docs |
-| stdout buffering eating output | LOW | Add `PYTHONUNBUFFERED=1` to container env or add flush=True to print calls |
-| Memory leak in whisper server | LOW | Add cache clearing, restart server; no data loss since servers are stateless |
-| --break-system-packages corruption | MEDIUM | Rebuild container (or reinstall conflicting packages). Prevent by pinning deps and testing on fresh containers |
-| host.docker.internal unreachable | LOW | Check server binding (0.0.0.0), check macOS firewall, verify extra_hosts config in Docker Compose |
+| Key file committed to git | HIGH | Revoke key immediately in GCP Console, generate new key, use BFG Repo-Cleaner to purge from all history, force-push, rotate any tokens that may have been generated with the compromised key |
+| Wrong scopes in Admin Console | LOW | Update in Admin Console > Security > API Controls > Domain-wide Delegation; takes effect within minutes, no code changes needed |
+| Token caching bug (stale tokens) | LOW | Restart auth server to clear in-memory cache; add `/cache/clear` admin endpoint for future incidents |
+| base64 vs base64url encoding | LOW | Fix encoding function, add unit test; no data loss since Gmail API rejects malformed messages outright |
+| Gmail API not enabled in GCP project | LOW | Enable in GCP Console > APIs & Services > Enable APIs; takes effect immediately |
+| Auth server on 0.0.0.0 | MEDIUM | Change bind to 127.0.0.1, restart; audit launchd logs for any external IP token requests |
+| Subject not required on token endpoint | MEDIUM | Add validation, update all skill calls; existing tokens still expire in < 1 hour so exposure is time-limited |
+| ClawsClient missing methods | LOW | Add methods to claws-common, bump version; all skills using it get the fix on next `uv sync` |
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| launchd env vars | Phase 1: Infrastructure | Server starts correctly after full macOS reboot |
-| Path dependency breakage | Phase 1: Package Structure | `pip install git+...#subdirectory=` works in fresh container |
-| host.docker.internal failures | Phase 1: claws-common | Client gives actionable error messages for each failure mode |
-| stdout buffering | Phase 1: CLI Skeleton | Output appears when invoked non-interactively |
-| --break-system-packages conflicts | Phase 1: Package Structure | Install on fresh node:24-bookworm with no pip warnings |
-| MLX memory accumulation | Phase 2: Whisper Server | Memory stable after 20 sequential transcriptions |
-| File upload size limits | Phase 2: Whisper Server | 50MB file uploads succeed |
-| No health endpoint | Phase 1: Server Skeleton | `curl /health` returns status on every server |
-| Inconsistent error output | Phase 1: claws-common | CLI exit codes and messages follow documented contract |
+| Missing subject in credentials | Auth server design | `/token` returns 400 when `subject` is omitted for Gmail scopes |
+| Key file security | Auth server foundation | Key path is outside repo; `.gitignore` blocks credentials patterns; no key references in Dockerfile |
+| Two-console delegation setup | Auth server implementation | Startup health check makes real Gmail API call; fails loudly with setup instructions if delegation is broken |
+| Token caching | Auth server implementation | Integration test: two `/token` requests within 1 second return same token; only one Google token exchange occurs |
+| base64url encoding | Gmail skill implementation | Unit test: encoded MIME output contains no `+`, `/`, or `=` characters |
+| ClawsClient extension | Common library update (prerequisite) | `post_json()` method exists with same error handling as `get()` and `post_file()` |
+| Gmail API not enabled | Auth server implementation | Covered by startup health check (same as delegation validation) |
+| Auth server bind address | Auth server foundation | `lsof -i :8301` shows `127.0.0.1` not `*` after server starts |
+| Port conflict with whisper | Auth server foundation | Port 8301 documented in CLAUDE.md; no collision with whisper on 8300 |
 
 ## Sources
 
-- [Python Monorepo: Structure and Tooling (Tweag)](https://www.tweag.io/blog/2023-04-04-python-monorepo-1/)
-- [Where is my PATH, launchD? (Lucas Pinheiro)](https://lucaspin.medium.com/where-is-my-path-launchd-fc3fc5449864)
-- [Environment variables for launchd (Apple Developer Forums)](https://developer.apple.com/forums/thread/681550)
-- [Docker Networking: host.docker.internal (Docker Docs)](https://docs.docker.com/desktop/features/networking/)
-- [host.docker.internal resolves but does not respond (moby/moby #46892)](https://github.com/moby/moby/issues/46892)
-- [Python stdout buffering in Docker (docker-library/python #604)](https://github.com/docker-library/python/issues/604)
-- [PEP 668 and --break-system-packages (Louis-Philippe Veronneau)](https://veronneau.org/python-311-pip-and-breaking-system-packages.html)
-- [MLX Whisper performance and memory (lightning-whisper-mlx)](https://github.com/mustafaaljadery/lightning-whisper-mlx)
-- [FastAPI production deployment patterns](https://stribny.name/posts/fastapi-production/)
-- [Docker Networking Pitfalls](https://jwillmer.de/blog/programming/docker-networking-pitfalls)
+- [Google: Domain-wide delegation best practices](https://support.google.com/a/answer/14437356?hl=en)
+- [Google: Control API access with domain-wide delegation](https://support.google.com/a/answer/162106?hl=en)
+- [Google: Best practices for managing service account keys](https://docs.cloud.google.com/iam/docs/best-practices-for-managing-service-account-keys)
+- [Google: Best practices for using service accounts securely](https://docs.cloud.google.com/iam/docs/best-practices-service-accounts)
+- [Google: Using OAuth 2.0 for Server to Server Applications](https://developers.google.com/identity/protocols/oauth2/service-account)
+- [Google: Gmail API Usage Limits and Quotas](https://developers.google.com/workspace/gmail/api/reference/quota)
+- [Google: Create and send email messages (Gmail API)](https://developers.google.com/workspace/gmail/api/guides/sending)
+- [GitHub: Precondition check failed with service account (googleapis/google-api-python-client#984)](https://github.com/googleapis/google-api-python-client/issues/984)
+- [GitHub: google-auth-library-python user guide](https://github.com/googleapis/google-auth-library-python/blob/main/docs/user-guide.rst)
+- [Google: Token types and lifetimes](https://docs.cloud.google.com/docs/authentication/token-types)
 
 ---
-*Pitfalls research for: Python CLI tools monorepo with Docker/host split architecture (Lobster Claws)*
-*Researched: 2026-03-17*
+*Pitfalls research for: Google auth server + Gmail skill integration into lobster_claws*
+*Researched: 2026-03-19*

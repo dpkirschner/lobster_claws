@@ -1,186 +1,216 @@
 # Feature Research
 
-**Domain:** Python CLI tool monorepo for AI agent skills (container CLI + host server pairs)
-**Researched:** 2026-03-17
+**Domain:** Google auth server + Gmail CLI skill for AI agent tooling
+**Researched:** 2026-03-19
 **Confidence:** HIGH
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features the AI agent (consumer) and developer (author) assume exist. Missing these = skills are unreliable or painful to build.
+The "user" here is the OpenClaw AI agent invoking `claws gmail <subcommand>`. These features are the minimum for Gmail to be useful as an agent tool.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Shared HTTP client library (`claws-common`) | Every skill makes the same container-to-host HTTP call; duplicating this per skill is a maintenance nightmare | LOW | Base class with host resolution, timeout, retry, error formatting. This is the foundation everything else builds on |
-| Automatic host resolution | Skills must find the host server without manual config. Docker vs local detection is the first thing that breaks | LOW | Check `.dockerenv` / cgroup for Docker, fall back to `localhost`, allow `OPENCLAW_TOOLS_HOST` env override |
-| Structured stdout / stderr separation | AI agents parse stdout for results. Mixing diagnostic output into stdout breaks the agent's ability to use the tool | LOW | stdout = result text only, stderr = logs/diagnostics. Agent reads stdout, developer reads stderr |
-| Meaningful exit codes | Agent needs machine-readable success/failure signals to decide next action. Exit 0 = worked, nonzero = didn't | LOW | 0=success, 1=server unreachable, 2=usage error, 3=processing error. Document and keep stable |
-| Health check endpoints (`GET /health`) | Operator needs to verify servers are running. launchd needs to know if restart is required. Agent can pre-check before slow operations | LOW | Return JSON with status, model loaded state, uptime. Every server gets one |
-| Server auto-start via launchd | Host servers must survive reboots and crashes without human intervention. Manual `python server.py` is not operations | MEDIUM | launchd plist per server in `~/Library/LaunchAgents/`, with `KeepAlive`, `StandardOutPath`, `StandardErrorPath` |
-| pip-installable packages from git | Skills install into the OpenClaw container via `pip install git+https://...`. If this doesn't work cleanly, nothing works | LOW | Each skill has its own `pyproject.toml` with proper entry points and dependencies on `claws-common` |
-| Actionable error messages | When transcription fails, the agent needs to know WHY (file not found? server down? wrong format?) not just "error" | LOW | Include error type, failing input echoed back, and suggested recovery action in stderr |
-| File upload support (multipart) | The first skill (transcribe) sends audio files. File upload is the primary data transfer pattern for media skills | LOW | `claws-common` provides a `post_file()` method that handles multipart encoding |
-| Timeout handling | ML inference can take seconds to minutes. Skills must not hang forever, and agents need to know when something timed out vs failed | LOW | Configurable timeout with sensible defaults (30s for transcribe). Timeout = specific exit code so agent can retry or give up |
+| **Auth server: serve access tokens** | Every Gmail API call needs a Bearer token. The auth server's sole purpose is producing these. | MEDIUM | JWT assertion flow: sign with RS256 private key, POST to `https://oauth2.googleapis.com/token`, cache result for ~55 min. Requires `PyJWT` + `cryptography` for RS256 signing. |
+| **Auth server: domain-wide delegation (sub claim)** | Service account alone cannot access a user's mailbox. The `sub` field in the JWT impersonates the target Gmail user. Without this, Gmail API returns 403. | LOW | Single extra field in JWT claim set. The delegated user email is a server config value (one agent = one Gmail identity). |
+| **Auth server: health endpoint** | Every claws server exposes `GET /health`. Pattern established by whisper-server. | LOW | Identical pattern to whisper-server. Return status + service name. |
+| **Auth server: token caching** | Google tokens last 3600s. Re-requesting on every call wastes time and risks rate limits. | LOW | Cache token in memory, refresh when `expires_at - buffer` is reached. Single-threaded FastAPI makes this trivial (module-level dict or dataclass). |
+| **Auth server: launchd plist** | All host servers auto-start via launchd. Established pattern. | LOW | Copy whisper-server plist, change port/paths. |
+| **Gmail server: list messages** | The most basic email operation. Agent needs to check what is in the inbox. | MEDIUM | `GET /gmail/v1/users/me/messages?q=in:inbox` returns message IDs, then batch-fetch headers for each. Pagination via `nextPageToken`. Server must handle both calls and merge results. |
+| **Gmail server: read message content** | After listing, agent needs to read actual message bodies. | MEDIUM | `GET .../messages/{id}?format=full` returns nested MIME payload. Server must extract plain text from `payload.parts` tree (recursive, multipart messages have nested parts). |
+| **Gmail server: send email** | Core capability -- agent needs to send emails on behalf of the user. | MEDIUM | `POST .../messages/send` with base64url-encoded RFC 2822 message. Server must construct MIME message from structured input (to, subject, body). |
+| **Gmail server: search by query** | Gmail's killer feature. Agent should search by sender, subject, date, labels. | LOW | Same list endpoint but with `q` parameter. Gmail search syntax is powerful: `from:x subject:y after:2024/01/01 has:attachment`. Pass through from CLI. |
+| **Gmail server: structured output** | Agent needs parseable JSON, not raw Gmail API payloads with nested MIME trees. | MEDIUM | Server-side transformation: extract From, To, Subject, Date, snippet, plain-text body from Gmail's nested payload format into flat JSON. |
+| **Gmail CLI: subcommands** | Agent invokes `claws gmail inbox`, `claws gmail read <id>`, `claws gmail send`, `claws gmail search <query>`. Subcommand pattern matches how agents think about distinct actions. | MEDIUM | argparse with subparsers. Each subcommand maps to one Gmail server endpoint. Follows existing claws-transcribe pattern but with multiple operations. |
+| **ClawsClient: post_json method** | Current ClawsClient only has `get` and `post_file`. Gmail skill needs to POST JSON bodies (for send). | LOW | ~15 lines following existing error-handling pattern. |
+| **ClawsClient: get with query params** | Current `get()` takes only a path. Gmail search needs query parameters passed to the server. | LOW | Add `**params` to existing `get()`, pass as `params=` to httpx. |
 
 ### Differentiators (Competitive Advantage)
 
-Features that make this system notably better than ad-hoc tool scripts. Not required for v1 but create real value.
+Features that make this agent Gmail integration notably better than the bare minimum.
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| `claws` meta-CLI with skill discovery | Single `claws` command that discovers all installed skills and routes to them. Agent gets one entry point instead of remembering N different commands | MEDIUM | Use `pkg_resources` / `importlib.metadata` entry points for discovery. `claws transcribe file.wav` instead of `claws-transcribe file.wav` |
-| Server status dashboard CLI | `claws status` checks health of all known servers in one call. Agent can pre-flight check before attempting operations | LOW | Hit each server's `/health` endpoint, report up/down/model-loaded in a table or JSON |
-| Warm model preloading on server start | MLX-Whisper model loads take 5-15 seconds. Loading on first request means the first transcription is painfully slow | MEDIUM | Server loads model at startup, health endpoint reports `model_loaded: true/false`. launchd starts server at login so model is ready before agent needs it |
-| Streaming transcription progress | Long audio files can take 30+ seconds. Without progress, the agent (and user) don't know if it's working or hung | MEDIUM | Server sends chunked response or the CLI polls a status endpoint. Print progress to stderr so stdout stays clean for final result |
-| Server-side request queuing | If two transcription requests arrive simultaneously, the server needs to handle it gracefully rather than OOM or corrupt | MEDIUM | Single-worker FastAPI with a queue. Return 429 or queue position if busy. Prevents Apple Silicon GPU memory issues |
-| Scaffolding tool for new skills | `claws new my-skill` generates the boilerplate: CLI entry point, server template, pyproject.toml, launchd plist template, tests | MEDIUM | Reduces friction for adding new claws. Cookie-cutter style templates with the naming convention baked in |
-| Unified logging with correlation IDs | When debugging, trace a request from agent invocation through CLI to server and back. Without correlation, multi-hop debugging is guesswork | MEDIUM | CLI generates a request ID, passes as header, server logs with it, CLI includes in stderr output |
-| OpenAI-compatible API format | Whisper server uses same request/response format as OpenAI's audio API. Makes it a drop-in replacement if agent platform adds native API support | LOW | Follow OpenAI's `/v1/audio/transcriptions` spec for the endpoint shape. Already common in mlx-whisper community |
-| Dry-run / describe mode | `claws transcribe --describe` outputs what the tool does, expected inputs, output format. Helps agents self-discover capabilities without docs | LOW | JSON schema output describing the tool's interface. Useful for dynamic tool registration |
+| **Auth server: multi-scope token support** | Request tokens with different scope sets (gmail.readonly vs gmail.send vs gmail.modify). Future skills (Calendar, Drive) get auth for free with zero new server code. | LOW | Scope list comes from query param on token request. Server signs JWT with requested scopes. Already decided as "open token model" in PROJECT.md. |
+| **Gmail: thread view** | Agents often need conversation context, not isolated messages. Thread grouping gives coherent email history. | LOW | `GET .../threads/{id}` returns all messages in a thread. Minimal extra work since message parsing already exists. |
+| **Gmail: attachment metadata** | Agent can see what attachments exist without downloading them. Useful for triage ("you got a PDF from X"). | LOW | Attachment metadata already present in message payload parts. Just surface `filename`, `mimeType`, `size` fields during payload flattening. |
+| **Gmail: label filtering** | Filter by label (INBOX, SENT, STARRED, custom labels). More precise than search query alone. | LOW | `labelIds` parameter on messages.list. Simple pass-through. |
+| **Gmail: reply-to support** | Maintain email thread continuity by setting `In-Reply-To` and `References` headers when sending. | MEDIUM | Requires fetching the original message's `Message-ID` header, then setting reply headers in the outgoing MIME message. Agent sends `--reply-to <message_id>`. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-Features that seem good but create problems for this specific architecture.
-
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| Direct external API calls from container | Simpler than proxying through host server | Breaks the security model (container stays "dumb"), scatters auth credentials, loses centralized logging and rate limiting | Always proxy through host servers, even for simple REST APIs. The extra hop is the feature, not a bug |
-| MCP server protocol | It's the industry standard for AI tool integration in 2025-2026 | OpenClaw invokes tools as CLI commands, not MCP. Adding MCP means running an MCP server inside the container alongside the existing tool system. Premature abstraction for a single-user system | Keep CLI-based tools. If OpenClaw adds MCP support later, write a thin MCP wrapper around existing CLIs |
-| Plugin auto-discovery via filesystem scanning | Avoids entry point registration, just drop a file in a directory | Fragile, depends on install paths, breaks in containerized environments where packages install to different locations | Use Python entry points (`[project.scripts]` in pyproject.toml). Standard, portable, works everywhere pip does |
-| Centralized tool registry / database | Track which skills are installed, their versions, capabilities | Over-engineering for a monorepo where you control all the code. Adds state management complexity for no benefit at this scale | `pip list \| grep claws` or entry point discovery. The package manager IS the registry |
-| GPU sharing / multi-model serving | Run whisper + other ML models simultaneously on Apple Silicon | Apple Silicon unified memory is limited (16-64GB). Model swapping and GPU contention create unpredictable latency and OOM risks | One server per model, one model loaded at a time per server. Sequential, predictable, debuggable |
-| WebSocket-based communication | Real-time bidirectional communication between CLI and server | CLI tools are request-response by nature. WebSockets add connection management complexity for no benefit when the agent just wants stdout | HTTP POST + response. Use chunked transfer encoding if streaming is needed |
-| Container-side caching of results | Cache transcription results in the container to avoid re-processing | Container is ephemeral (can be recreated). Cache invalidation is hard. Media files can be large | Cache on the server side if needed, keyed by file hash. Server persists across container rebuilds |
-| Async/concurrent skill execution | Run multiple skills in parallel from the agent | The agent already handles concurrency at its level. Adding concurrency inside individual skills creates complexity without benefit | Let the agent orchestrate parallelism. Each skill invocation is a simple, synchronous, single-purpose call |
+| **OAuth2 web flow (3-legged)** | "More standard" auth | Requires browser interaction, refresh token storage, token rotation. Service account + delegation is set-once, no user interaction, no expiring refresh tokens. | Domain-wide delegation. One-time admin console setup, then fully automated forever. |
+| **google-api-python-client dependency** | "Official" Google library | Pulls in google-auth, google-auth-httplib2, uritemplate, and httplib2 -- a parallel HTTP stack alongside httpx. Heavy, unnecessary when you only need 4 REST endpoints. | Direct REST calls via httpx. JWT signing needs only PyJWT + cryptography. Gmail API is simple REST with Bearer tokens. Matches existing "thin wrapper" pattern. |
+| **Attachment download** | Agent might want to "read" attachments | Large binary downloads through the server proxy are slow, and the agent cannot meaningfully process most attachment types (PDFs, images) without additional tools. Opens door to memory/storage issues. | List attachment metadata only. Download can be added per-type when a consuming skill exists (e.g., a future PDF-reader claw). |
+| **Email deletion** | Agent could clean up inbox | Destructive, irreversible operation. Gmail's `DELETE` is permanent (bypasses trash). An AI agent deleting emails is a trust/safety risk. | Use trash (recoverable) if needed at all, but even trash should be deferred until trust is established with the agent. |
+| **Draft management** | Agent could prepare emails for human review | Adds significant complexity (create, update, list, send drafts -- 4 new endpoints). For an autonomous agent, direct send is the right pattern. Drafts add a human-in-the-loop step that does not fit this architecture. | Direct send. If human review is needed, that is a higher-level agent concern, not a skill concern. |
+| **Per-skill scope enforcement on auth server** | Security best practice | Over-engineering for a single-user, internal-network-only system. Adds ACL management, skill identity verification, config complexity. | Open token model (any skill requests any scope). Already decided in PROJECT.md. Revisit only if the system ever serves multiple users or untrusted skills. |
+| **Real-time push notifications (Gmail watch)** | Know about new emails instantly | Requires a public webhook URL (impossible from a Mac mini behind NAT without tunneling), or Pub/Sub subscription (Google Cloud overhead). | Agent calls `claws gmail inbox` when it wants to check email. On-demand, not push. The agent decides when to look. |
+| **HTML email rendering** | Show rich email content | Agent processes text, not HTML. Extracting text/plain is sufficient. HTML parsing adds complexity (sanitization, link extraction) for minimal agent value. | Return text/plain body. Include snippet (first ~200 chars) from Gmail API as fallback when text/plain part is missing. |
 
 ## Feature Dependencies
 
 ```
-[claws-common (shared client library)]
-    |
-    |--requires--> [Host resolution logic]
-    |--requires--> [HTTP client with file upload]
-    |--requires--> [Error formatting / exit codes]
-    |
-    +--enables--> [claws-transcribe CLI]
-    |                 |--requires--> [Whisper server running on host]
-    |                 |--requires--> [File upload support in claws-common]
-    |
-    +--enables--> [Future skills (resy, spotify, etc.)]
+[ClawsClient enhancements (post_json, get with params)]
+    └──required by──> [Gmail skill CLI]
 
-[Whisper server (FastAPI)]
-    |--requires--> [mlx-whisper installed on host]
-    |--requires--> [Health check endpoint]
-    |--enhances--> [Model preloading at startup]
-    |
-    +--managed-by--> [launchd plist]
+[Auth server (token serving + delegation + caching)]
+    └──required by──> [Gmail server (needs Bearer tokens for every API call)]
+                          └──required by──> [Gmail skill CLI]
 
-[claws meta-CLI] --enhances--> [claws-common]
-    |--requires--> [Entry point discovery]
-    |--enables--> [claws status (health dashboard)]
-    |--enables--> [claws new (scaffolding)]
+[Auth server: launchd plist]
+    └──requires──> [Auth server working correctly]
 
-[Structured output] --enables--> [Agent error recovery loops]
-[Meaningful exit codes] --enables--> [Agent error recovery loops]
+[Gmail server: read message]
+    └──requires──> [Gmail server: list messages (need message IDs)]
+    └──requires──> [Gmail server: structured output (MIME flattening)]
+
+[Gmail server: structured output]
+    └──required by──> [Gmail server: read message]
+    └──required by──> [Gmail server: list messages (header extraction)]
+
+[Gmail server: search]
+    └──enhances──> [Gmail server: list messages (same endpoint, adds q param)]
+
+[Gmail server: send]
+    └──independent of read (requires auth server + MIME construction)]
+    └──requires──> [ClawsClient.post_json]
+
+[Gmail: thread view]
+    └──enhances──> [Gmail: read message]
+    └──requires──> [Gmail server: structured output (reuse MIME flattening)]
+
+[Auth server: multi-scope support]
+    └──enables──> [Future Google skills (Calendar v1.2, Drive)]
 ```
 
 ### Dependency Notes
 
-- **claws-transcribe requires claws-common:** All skills depend on the shared client for host resolution and HTTP calls. Build common first.
-- **claws-transcribe requires Whisper server:** The CLI is useless without the server running. Both must ship together.
-- **claws meta-CLI requires entry points:** Skills must register as entry points before discovery works. This means pyproject.toml must be correct first.
-- **Model preloading enhances Whisper server:** Not required for function, but dramatically improves first-request latency. Add after server works.
-- **launchd plist managed by server package:** Ship the plist template with the server code, not separately.
+- **Auth server must exist before Gmail server:** Gmail server requests tokens from auth server on every outbound Gmail API call. Auth server is the foundation layer.
+- **ClawsClient enhancements before Gmail skill:** The skill CLI needs `post_json` (for send) and parameterized `get` (for search/list). Small additions to existing `claws-common` code.
+- **Structured output is cross-cutting:** Transforming Gmail's nested MIME payload into clean JSON is needed by both list (header extraction) and read (body extraction). Build this into the Gmail server from the start, not as an afterthought.
+- **Multi-scope auth enables future skills:** Building the auth server with scope flexibility means Calendar (v1.2) and Drive skills get authentication for free -- just different scope strings.
 
 ## MVP Definition
 
-### Launch With (v1)
+### Launch With (v1.1)
 
-Minimum viable product -- what's needed for the agent to successfully transcribe audio.
+Minimum to make Gmail useful as an agent tool.
 
-- [ ] `claws-common` package -- host resolution, HTTP client, error formatting, exit codes
-- [ ] `claws-transcribe` CLI -- accepts audio file path, POSTs to whisper server, prints transcription to stdout
-- [ ] Whisper server (FastAPI) -- `POST /transcribe` accepts file upload, returns text; `GET /health` returns status
-- [ ] launchd plist for whisper server -- auto-start, auto-restart, log to file
-- [ ] Structured output -- stdout for result, stderr for diagnostics, meaningful exit codes
-- [ ] pip installable from git URLs -- `pip install git+https://...#subdirectory=skills/transcribe`
+- [ ] Auth server with service account + domain-wide delegation -- foundation for all Google API access
+- [ ] Auth server token caching + health endpoint -- operational basics
+- [ ] Auth server launchd plist -- auto-start on reboot
+- [ ] Gmail server proxying list + get + send to Gmail REST API -- core email operations
+- [ ] Gmail server search pass-through (q parameter) -- agent needs to find specific emails
+- [ ] Gmail server structured output (flatten MIME payloads to clean JSON) -- agent needs parseable responses
+- [ ] Gmail CLI skill: `claws gmail inbox`, `read <id>`, `send --to --subject --body`, `search <query>` -- the agent-facing interface
+- [ ] ClawsClient.post_json and get-with-params enhancements -- required by Gmail skill
+- [ ] Auth server multi-scope support -- trivial to add now, enables Calendar later
 
-### Add After Validation (v1.x)
+### Add After Validation (v1.1.x)
 
-Features to add once the first skill works end-to-end.
+Features to add once core Gmail works end-to-end.
 
-- [ ] `claws` meta-CLI with entry point discovery -- trigger: when adding the second skill makes N separate commands annoying
-- [ ] `claws status` health dashboard -- trigger: when debugging "is the server running?" becomes frequent
-- [ ] Model preloading at server startup -- trigger: when cold-start latency complaints emerge
-- [ ] OpenAI-compatible API format for whisper -- trigger: when considering interop with other tools
-- [ ] Request queuing on server -- trigger: when concurrent requests cause issues
-- [ ] `--describe` / dry-run mode -- trigger: when exploring dynamic tool registration
+- [ ] Thread view (`claws gmail thread <id>`) -- add when agent needs conversation context
+- [ ] Attachment metadata in message output -- add when agent asks "what files were attached"
+- [ ] Label filtering on list/search -- add when inbox-only filtering is too limiting
+- [ ] Reply-to support (In-Reply-To + References headers) -- add when agent needs to maintain email threads
+- [ ] Mark as read/unread via modify endpoint -- add when agent manages inbox state
 
 ### Future Consideration (v2+)
 
-Features to defer until the pattern is proven and more skills exist.
-
-- [ ] Scaffolding tool (`claws new`) -- defer: not worth building until 3+ skills exist and the pattern is truly stable
-- [ ] Correlation ID logging -- defer: debugging is manageable at small scale; add when multi-hop tracing becomes painful
-- [ ] Streaming transcription progress -- defer: nice UX but complex; only matters for very long audio files
-- [ ] Unified configuration system -- defer: each server can have its own config until config sprawl becomes a real problem
+- [ ] Google Calendar skill (v1.2) -- reuses auth server, different scopes, different REST endpoints
+- [ ] Google Drive skill -- reuses auth server, different scopes
+- [ ] Attachment download -- requires a consuming skill to process attachments
+- [ ] Trash/archive -- defer until agent trust model is established
+- [ ] Batch operations (batch delete, batch modify) -- defer until single-message operations prove limiting
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| claws-common shared library | HIGH | LOW | P1 |
-| Host resolution (auto-detect Docker) | HIGH | LOW | P1 |
-| claws-transcribe CLI | HIGH | LOW | P1 |
-| Whisper server (FastAPI) | HIGH | MEDIUM | P1 |
-| Health check endpoints | HIGH | LOW | P1 |
-| Structured stdout/stderr | HIGH | LOW | P1 |
-| Meaningful exit codes | HIGH | LOW | P1 |
-| launchd plist management | HIGH | LOW | P1 |
-| pip installable packages | HIGH | LOW | P1 |
-| Actionable error messages | MEDIUM | LOW | P1 |
-| File upload (multipart) | HIGH | LOW | P1 |
-| Timeout handling | MEDIUM | LOW | P1 |
-| claws meta-CLI | MEDIUM | MEDIUM | P2 |
-| claws status dashboard | MEDIUM | LOW | P2 |
-| Model preloading | MEDIUM | MEDIUM | P2 |
-| OpenAI-compatible API | LOW | LOW | P2 |
-| Request queuing | MEDIUM | MEDIUM | P2 |
-| Dry-run / describe mode | LOW | LOW | P2 |
-| Scaffolding tool | LOW | MEDIUM | P3 |
-| Correlation ID logging | LOW | MEDIUM | P3 |
-| Streaming progress | LOW | MEDIUM | P3 |
+| Auth server (token + delegation + caching) | HIGH | MEDIUM | P1 |
+| Auth server health endpoint | HIGH | LOW | P1 |
+| Auth server launchd plist | HIGH | LOW | P1 |
+| Auth server multi-scope support | HIGH | LOW | P1 |
+| Gmail server: list messages | HIGH | MEDIUM | P1 |
+| Gmail server: read message | HIGH | MEDIUM | P1 |
+| Gmail server: send message | HIGH | MEDIUM | P1 |
+| Gmail server: search (q param) | HIGH | LOW | P1 |
+| Gmail server: structured output | HIGH | MEDIUM | P1 |
+| Gmail CLI: inbox/read/send/search | HIGH | MEDIUM | P1 |
+| ClawsClient enhancements | HIGH | LOW | P1 |
+| Gmail server: launchd plist | HIGH | LOW | P1 |
+| Thread view | MEDIUM | LOW | P2 |
+| Attachment metadata | MEDIUM | LOW | P2 |
+| Reply-to support | MEDIUM | MEDIUM | P2 |
+| Label filtering | LOW | LOW | P2 |
+| Mark read/unread | LOW | LOW | P3 |
 
 **Priority key:**
-- P1: Must have for launch
-- P2: Should have, add when possible
+- P1: Must have for v1.1 launch
+- P2: Should have, add in v1.1.x patches
 - P3: Nice to have, future consideration
 
-## Competitor Feature Analysis
+## Gmail API Technical Reference
 
-| Feature | mlx-whisper-api-server (gschmutz) | whisper_turboapi (kristofferv98) | Our Approach |
-|---------|----------------------------------|----------------------------------|--------------|
-| API format | OpenAI-compatible | OpenAI-compatible | Simple custom first, OpenAI-compat later (P2) |
-| Model management | Manual model selection | Turbo model hardcoded | Configurable model, preloaded at startup |
-| Health checks | None apparent | None apparent | Full health endpoint with model-loaded status |
-| Service management | Manual process | Manual process | launchd with auto-restart, log rotation |
-| Client library | None (direct HTTP) | None (direct HTTP) | Shared `claws-common` with host auto-detection |
-| Error handling | Basic HTTP errors | Basic HTTP errors | Structured errors with exit codes for agent consumption |
-| Multi-skill support | N/A (single purpose) | N/A (single purpose) | Monorepo pattern designed for adding new skills |
+Key details that inform implementation complexity.
+
+### Authentication Flow (Service Account + Domain-Wide Delegation)
+1. Load service account JSON key file (contains `private_key`, `client_email`, `token_uri`)
+2. Build JWT claims: `{"iss": client_email, "sub": delegated_user_email, "scope": "https://www.googleapis.com/auth/gmail.modify", "aud": "https://oauth2.googleapis.com/token", "iat": now, "exp": now+3600}`
+3. Sign JWT with RS256 using the service account's RSA private key
+4. POST to `https://oauth2.googleapis.com/token` with `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=<signed_jwt>`
+5. Response: `{"access_token": "ya29...", "token_type": "Bearer", "expires_in": 3600}`
+6. Cache token, refresh at ~55 min mark
+
+### Gmail API Endpoints Used (v1.1 scope)
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/gmail/v1/users/me/messages` | GET | List messages (with `q`, `maxResults`, `pageToken`, `labelIds`) |
+| `/gmail/v1/users/me/messages/{id}` | GET | Get single message (with `format=full\|metadata\|minimal`) |
+| `/gmail/v1/users/me/messages/send` | POST | Send message (body: `{"raw": base64url_rfc2822}`) |
+| `/gmail/v1/users/me/threads/{id}` | GET | Get thread with all messages (P2) |
+
+### Required OAuth Scopes
+| Scope | Grants | When to use |
+|-------|--------|-------------|
+| `gmail.readonly` | Read messages, threads, labels | Read-only access |
+| `gmail.send` | Send email only | Send-only access |
+| `gmail.modify` | Read + send + modify labels | Full access (superset, simplest) |
+
+### MIME Payload Parsing Complexity
+Gmail's `format=full` returns nested structures that need flattening:
+- `payload.headers[]` -- array of `{name, value}` for From, To, Subject, Date
+- `payload.body.data` -- base64url body (simple single-part messages)
+- `payload.parts[]` -- array of parts for multipart, each with its own `body.data` and possibly nested `parts[]`
+- Text extraction: walk parts tree, find `mimeType: "text/plain"`, decode `body.data` from base64url
+- Fallback: if no text/plain, use `snippet` field (~200 chars, always present)
+
+### Gmail Search Query Syntax (q parameter)
+| Operator | Example | Notes |
+|----------|---------|-------|
+| `from:` | `from:boss@company.com` | Filter by sender |
+| `to:` | `to:me` | Filter by recipient |
+| `subject:` | `subject:meeting` | Filter by subject |
+| `after:` / `before:` | `after:2024/01/01` | Date range |
+| `has:attachment` | `has:attachment` | Messages with attachments |
+| `is:unread` | `is:unread` | Unread messages |
+| `in:` | `in:inbox` / `in:sent` | By mailbox/label |
+| `OR` | `from:a OR from:b` | Boolean OR (default is AND) |
 
 ## Sources
 
-- [Writing CLI Tools That AI Agents Actually Want to Use](https://dev.to/uenyioha/writing-cli-tools-that-ai-agents-actually-want-to-use-39no) - Core patterns for agent-friendly CLI design
-- [Keep the Terminal Relevant: Patterns for AI Agent Driven CLIs](https://www.infoq.com/articles/ai-agent-cli/) - AI agent CLI architecture patterns
-- [Python Packaging: Creating and Discovering Plugins](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/) - Entry point discovery patterns
-- [mlx-whisper-api-server](https://github.com/gschmutz/mlx-whisper-api-server) - Reference FastAPI whisper server implementation
-- [whisper_turboapi](https://github.com/kristofferv98/whisper_turboapi) - Optimized MLX whisper server
-- [FastAPI Health Check Patterns](https://microservices.io/patterns/observability/health-check-api.html) - Health check API design
-- [Python Monorepo Patterns (Tweag)](https://www.tweag.io/blog/2023-04-04-python-monorepo-1/) - Monorepo structure and shared libraries
-- [Building a Python Monorepo with UV](https://medium.com/@naorcho/building-a-python-monorepo-with-uv-the-modern-way-to-manage-multi-package-projects-4cbcc56df1b4) - Modern Python monorepo tooling
-- [MCP vs Skills Architecture](https://apacheseatunnel.medium.com/mcp-vs-skills-how-ai-agents-connect-to-tools-and-real-world-systems-b4f698c04b76) - Understanding tool vs protocol approaches
+- [Google OAuth2 Service Account Flow](https://developers.google.com/identity/protocols/oauth2/service-account) -- JWT assertion details, sub claim for delegation (HIGH confidence)
+- [Gmail API REST Reference](https://developers.google.com/workspace/gmail/api/reference/rest) -- all endpoints, formats, parameters (HIGH confidence)
+- [Gmail API Search/Filter Guide](https://developers.google.com/workspace/gmail/api/guides/filtering) -- q parameter syntax (HIGH confidence)
+- [Gmail Message Format Reference](https://developers.google.com/workspace/gmail/api/reference/rest/v1/Format) -- raw vs full vs metadata (HIGH confidence)
+- [Domain-Wide Delegation Best Practices](https://support.google.com/a/answer/14437356?hl=en) -- Google's official guidance (HIGH confidence)
+- [Domain-Wide Delegation Setup](https://support.google.com/a/answer/162106?hl=en) -- Admin console configuration steps (HIGH confidence)
 
 ---
-*Feature research for: Python CLI tool monorepo for AI agent skills*
-*Researched: 2026-03-17*
+*Feature research for: Google auth server + Gmail CLI skill (v1.1 milestone)*
+*Researched: 2026-03-19*

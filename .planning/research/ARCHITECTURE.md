@@ -1,348 +1,406 @@
 # Architecture Research
 
-**Domain:** Python tools monorepo -- Docker-containerized CLIs + macOS host servers
-**Researched:** 2026-03-17
+**Domain:** Google auth server + Gmail skill integration into existing claws monorepo
+**Researched:** 2026-03-19
 **Confidence:** HIGH
 
 ## System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  OpenClaw Docker Container (node:24-bookworm)                   │
-│                                                                 │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ claws-       │  │ claws-       │  │ claws-       │          │
-│  │ transcribe   │  │ resy         │  │ spotify      │          │
-│  │ (CLI)        │  │ (CLI)        │  │ (CLI)        │          │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
-│         │                 │                 │                   │
-│  ┌──────┴─────────────────┴─────────────────┴───────┐          │
-│  │              claws-common                         │          │
-│  │  (host resolution, HTTP client, error handling)   │          │
-│  └──────────────────────┬────────────────────────────┘          │
-│                         │                                       │
-└─────────────────────────┼───────────────────────────────────────┘
-                          │ HTTP (host.docker.internal:83XX)
-                          │
-┌─────────────────────────┼───────────────────────────────────────┐
-│  Mac Mini Host (macOS)  │                                       │
-│                         │                                       │
-│  ┌──────────────┐  ┌────┴─────────┐  ┌──────────────┐          │
-│  │ whisper-     │  │ resy-        │  │ spotify-     │          │
-│  │ server       │  │ server       │  │ server       │          │
-│  │ :8300        │  │ :8301        │  │ :8302        │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
-│       (FastAPI + uvicorn, managed by launchd)                   │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────┐           │
-│  │           servers-common                          │           │
-│  │  (shared FastAPI base, health check, logging)     │           │
-│  └──────────────────────────────────────────────────┘           │
-└─────────────────────────────────────────────────────────────────┘
+Container (Docker, no GPU)                Host (Mac mini, Apple Silicon)
+┌──────────────────────────────┐          ┌────────────────────────────────┐
+│                              │          │                                │
+│  claws gmail read            │──HTTP──> │  google-auth-server :8301      │
+│  claws gmail send            │          │  (FastAPI, token vending)      │
+│  claws gmail search          │          │                                │
+│  (claws-gmail CLI)           │          │  Holds: service-account.json   │
+│                              │          │  Issues: short-lived tokens    │
+│  Uses ClawsClient from       │          │  Managed by launchd            │
+│  claws-common                │          └──────────┬─────────────────────┘
+│                              │                     │
+│                              │                     │ JWT -> access token
+│                              │                     v
+│                              │          ┌────────────────────────────────┐
+│                              │──HTTPS─> │  Gmail REST API                │
+│                              │          │  gmail.googleapis.com          │
+│                              │          └────────────────────────────────┘
+└──────────────────────────────┘
 ```
 
-### Component Responsibilities
+## Key Architectural Decision: Where Gmail API Calls Happen
 
-| Component | Responsibility | Implementation |
-|-----------|----------------|----------------|
-| `claws-common` | Host resolution, HTTP client wrapper, stdout formatting, error handling | Python package; `httpx` for HTTP, auto-detects Docker vs host |
-| `claws-transcribe` | CLI entry point for audio transcription | Python package with `console_scripts` entry point; calls whisper server |
-| `servers-common` | Shared FastAPI boilerplate: health endpoint, structured logging, error middleware | Python package; FastAPI app factory pattern |
-| `whisper-server` | Audio transcription via mlx-whisper on Apple Silicon GPU | FastAPI app; `POST /transcribe` (multipart file upload), `GET /health` |
-| `launchd plists` | Process supervision for host servers | `.plist` files in `~/Library/LaunchAgents/`, `RunAtLoad`, auto-restart |
+Three options were evaluated:
 
-## Recommended Monorepo Structure
+**Option A: Auth server on host, Gmail calls direct from container -- REJECTED.** Breaks the established pattern ("every skill proxies through host servers") and means the container makes external API calls with no host involvement beyond auth.
 
-```
-lobster_claws/
-├── pyproject.toml              # Root: workspace config, shared dev deps (ruff, pytest, mypy)
-├── common/                     # claws-common (shared client library)
-│   ├── pyproject.toml          # name = "claws-common"
-│   ├── src/
-│   │   └── claws_common/
-│   │       ├── __init__.py
-│   │       ├── client.py       # SkillClient base class (HTTP + stdout)
-│   │       ├── host.py         # resolve_host(), _in_docker()
-│   │       └── errors.py       # Standardized error output
-│   └── tests/
-├── skills/                     # Container-side CLIs
-│   └── transcribe/
-│       ├── pyproject.toml      # name = "claws-transcribe", depends on claws-common
-│       ├── src/
-│       │   └── claws_transcribe/
-│       │       ├── __init__.py
-│       │       └── cli.py      # Entry point: transcribe command
-│       └── tests/
-├── servers/                    # Host-side FastAPI servers
-│   ├── common/
-│   │   ├── pyproject.toml      # name = "servers-common"
-│   │   ├── src/
-│   │   │   └── servers_common/
-│   │   │       ├── __init__.py
-│   │   │       ├── app.py      # FastAPI app factory with /health
-│   │   │       ├── logging.py  # Structured logging setup
-│   │   │       └── middleware.py  # Error handling middleware
-│   │   └── tests/
-│   └── whisper/
-│       ├── pyproject.toml      # name = "whisper-server", depends on servers-common
-│       ├── src/
-│       │   └── whisper_server/
-│       │       ├── __init__.py
-│       │       ├── app.py      # FastAPI app with /transcribe
-│       │       └── models.py   # Request/response schemas
-│       └── tests/
-├── launchd/                    # launchd plist templates
-│   └── com.lobsterclaws.whisper.plist
-├── scripts/                    # Dev/ops helper scripts
-│   ├── install-server.sh       # Install a server + register launchd
-│   └── install-skill.sh        # Install a skill into Docker container
-└── Makefile                    # Top-level dev commands
-```
+**Option B: Full Gmail proxy server on host -- REJECTED.** A dedicated gmail-server would proxy all Gmail API calls. Adds an unnecessary server since Gmail needs no host resources (no GPU, no local files, no macOS APIs). Pure HTTP proxying with no added value.
 
-### Structure Rationale
+**Option C: Auth server as token vending machine, skill calls Gmail directly -- CHOSEN.** The auth server's only job is vending access tokens. The Gmail skill gets a token from the auth server on the host, then calls `gmail.googleapis.com` directly from the container.
 
-- **`common/` at root level:** The client library is the foundational dependency. Keeping it top-level (not nested under `skills/`) signals its importance and simplifies path references.
-- **`skills/` directory:** Groups all container-side CLIs. Each skill is an independent pip-installable package with its own `pyproject.toml`. Future claws (resy, spotify) just add a new subdirectory.
-- **`servers/` directory with its own `common/`:** Host servers share boilerplate (health checks, logging, error middleware) but are distinct from the client-side common library. Servers have different dependencies (FastAPI, uvicorn, ML libraries) that should never leak into container packages.
-- **`launchd/` directory:** Plist files are deployment artifacts, not Python packages. Separating them makes the install/uninstall workflow clear.
-- **`src/` layout within each package:** Using the `src/` layout prevents accidental imports of uninstalled packages during development. This is the recommended Python packaging practice.
+**Rationale for Option C:**
 
-## Architectural Patterns
+1. Gmail API needs no host resources -- no GPU, no local files, no macOS APIs
+2. The auth server centralizes the secret -- service account JSON key never leaves the host
+3. The pattern generalizes -- future Google skills (Calendar, Drive) reuse the same auth server with zero changes
+4. Matches the architecture spirit -- the host holds secrets and heavy resources; the container runs logic
 
-### Pattern 1: Thin CLI + Fat Server
+This is a deliberate evolution of the v1.0 pattern. Instead of "thin CLI -> host server -> result", it becomes "thin CLI -> host auth server for token -> external API -> result". The host still owns the sensitive material. The container still has no secrets.
 
-**What:** Each skill CLI does almost nothing -- it parses arguments, calls `claws-common` to make an HTTP request to the host server, and prints the response to stdout. All business logic lives in the server.
+## New Components
 
-**When to use:** Always. This is the core pattern of the project.
+### 1. google-auth-server (NEW -- `servers/google-auth/`)
 
-**Trade-offs:** Adds network latency for every call, but gains GPU access, centralized logging, and clean container isolation. The container stays "dumb" by design.
+FastAPI server on the host. Holds the service account key file, mints access tokens via domain-wide delegation, caches them until near-expiry.
 
-**Example:**
+| Attribute | Value |
+|-----------|-------|
+| Port | 8301 |
+| Package name | `google-auth-server` |
+| Import name | `google_auth_server` |
+| Dependencies | `fastapi`, `uvicorn`, `google-auth` |
+| Key file location | Configured via env var `GOOGLE_SERVICE_ACCOUNT_KEY` |
+| Delegation subject | Configured via env var `GOOGLE_DELEGATED_USER` |
+
+**Endpoints:**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/token` | Returns `{"access_token": "...", "expires_in": N}` for requested scopes |
+| GET | `/health` | Standard health check |
+
+**Query parameters for /token:**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `scopes` | Yes | Comma-separated OAuth scopes (e.g., `https://www.googleapis.com/auth/gmail.modify`) |
+
+**Token caching strategy:** Cache tokens in memory keyed by `(subject, frozenset(scopes))`. Return cached token if it has >60 seconds remaining. Otherwise refresh via `credentials.refresh()`. The `google-auth` library handles JWT signing and Google's token endpoint exchange internally.
+
+**Implementation sketch:**
+
 ```python
-# skills/transcribe/src/claws_transcribe/cli.py
-import sys
-from pathlib import Path
-from claws_common.client import SkillClient
+from google.oauth2 import service_account
+import google.auth.transport.requests
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: transcribe <audio_file>", file=sys.stderr)
-        sys.exit(1)
+# At startup: load base credentials from service account key file
+credentials_base = service_account.Credentials.from_service_account_file(key_path)
 
-    client = SkillClient(service="whisper", port=8300)
-    result = client.post_file("/transcribe", Path(sys.argv[1]))
-    print(result["text"])
-
-# pyproject.toml: [project.scripts] transcribe = "claws_transcribe.cli:main"
+# Per-request token vending (with caching layer on top):
+def get_token(scopes: list[str], subject: str) -> dict:
+    creds = credentials_base.with_subject(subject).with_scopes(scopes)
+    creds.refresh(google.auth.transport.requests.Request())
+    return {"access_token": creds.token, "expires_in": seconds_remaining(creds.expiry)}
 ```
 
-### Pattern 2: FastAPI App Factory with Health Check
+### 2. claws-gmail (NEW -- `skills/gmail/`)
 
-**What:** Each server uses a factory function that creates a FastAPI app with standardized health endpoints, error handling middleware, and structured logging. Servers share this via `servers-common`.
+Thin CLI skill. Gets a token from the auth server, calls Gmail REST API directly with httpx.
 
-**When to use:** Every host server.
+| Attribute | Value |
+|-----------|-------|
+| Package name | `claws-gmail` |
+| Import name | `claws_gmail` |
+| Dependencies | `claws-common` (for ClawsClient, output helpers) |
+| Entry point | `gmail = "claws_gmail.cli:main"` in `claws.skills` group |
 
-**Trade-offs:** Minor indirection for consistency across all servers.
+**Subcommands:**
 
-**Example:**
+| Command | Gmail API Endpoint | Description |
+|---------|--------------------|-------------|
+| `claws gmail read <message_id>` | `GET /gmail/v1/users/me/messages/{id}` | Read a specific email |
+| `claws gmail send --to --subject --body` | `POST /gmail/v1/users/me/messages/send` | Send an email |
+| `claws gmail search <query>` | `GET /gmail/v1/users/me/messages?q=...` | Search inbox |
+
+**How the skill gets a token:**
+
 ```python
-# servers/common/src/servers_common/app.py
-from fastapi import FastAPI
-
-def create_app(name: str, version: str = "0.1.0") -> FastAPI:
-    app = FastAPI(title=name, version=version)
-
-    @app.get("/health")
-    async def health():
-        return {"status": "ok", "service": name}
-
-    return app
-
-# servers/whisper/src/whisper_server/app.py
-from servers_common.app import create_app
-
-app = create_app("whisper-server")
-
-@app.post("/transcribe")
-async def transcribe(file: UploadFile):
-    # ... mlx-whisper inference ...
-    return {"text": transcription}
+# Use ClawsClient to talk to google-auth-server on host
+auth_client = ClawsClient(service="google-auth", port=8301)
+token_response = auth_client.get("/token?scopes=https://www.googleapis.com/auth/gmail.modify")
+access_token = token_response["access_token"]
 ```
 
-### Pattern 3: Host Resolution Chain
+**How the skill calls Gmail API:**
 
-**What:** `claws-common` resolves the host address using a priority chain: (1) `OPENCLAW_TOOLS_HOST` env var, (2) Docker detection via `/.dockerenv` or cgroup, (3) fallback to `127.0.0.1`.
+```python
+# Direct httpx call to Gmail (not through ClawsClient -- different base URL and auth model)
+import httpx
 
-**When to use:** Every HTTP call from container to host.
+headers = {"Authorization": f"Bearer {access_token}"}
+resp = httpx.get(
+    f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={query}",
+    headers=headers,
+    timeout=30.0,
+)
+```
 
-**Trade-offs:** The Docker detection heuristics can break in edge cases (nested containers, rootless Docker). The env var override provides an escape hatch.
+The Gmail API calls use raw httpx, not ClawsClient. ClawsClient is for host-server communication (same base URL pattern, same error semantics). Gmail API is an external service with its own base URL, auth model, and error structure. A small helper class within `claws_gmail` (e.g., `gmail.py`) should handle Gmail-specific HTTP calls, error mapping, and response parsing.
 
-### Pattern 4: Console Scripts Entry Points
+### 3. Launchd plist (NEW -- `launchd/com.lobsterclaws.google-auth.plist`)
 
-**What:** Each skill registers a CLI command via `[project.scripts]` in `pyproject.toml`. After `pip install`, the command is available on `$PATH`. The OpenClaw agent invokes it as a subprocess.
+Follows the exact same pattern as the whisper plist: uvicorn, 0.0.0.0 binding, KeepAlive, RunAtLoad. Key differences: port 8301, env vars for key file path and delegated user email.
 
-**When to use:** Every skill.
+### 4. Modifications to Existing Components
 
-**Trade-offs:** Simple and universal. No framework dependency (no click/typer needed for single-command tools). For skills with subcommands, add `argparse` as needed.
+| Component | Change Required |
+|-----------|----------------|
+| `claws-common` | **NONE.** ClawsClient already supports GET requests. No new methods needed. |
+| `claws-cli` | **NONE.** Discovers gmail skill automatically via entry points. |
+| `root pyproject.toml` | **MINOR.** Add `claws-gmail` and `google-auth-server` to dev dependencies and UV sources. |
+
+## Component Responsibilities
+
+| Component | Responsibility | Status |
+|-----------|---------------|--------|
+| google-auth-server | Hold service account key, vend short-lived access tokens, cache tokens | NEW |
+| claws-gmail CLI | Parse args, get token from auth server, call Gmail API, format output | NEW |
+| claws-common | Shared client/output helpers | UNCHANGED |
+| claws-cli | Entry-point discovery and routing | UNCHANGED |
+| launchd plist | Auto-start google-auth-server | NEW |
 
 ## Data Flow
 
-### Primary Flow: Skill Invocation
+### Gmail Read Flow
 
 ```
-OpenClaw Agent (Node.js)
-    │
-    │  subprocess: `transcribe /path/to/audio.wav`
-    ↓
-claws-transcribe CLI (Python, in container)
-    │
-    │  claws-common: resolve_host() → host.docker.internal
-    │  HTTP POST multipart/form-data → host.docker.internal:8300/transcribe
-    ↓
-whisper-server (FastAPI, on Mac mini host)
-    │
-    │  mlx-whisper inference (Apple Silicon GPU)
-    │  Returns JSON: {"text": "transcribed content..."}
-    ↓
-claws-transcribe CLI
-    │
-    │  Prints result to stdout
-    ↓
-OpenClaw Agent
-    │  Captures stdout as tool result
-    ↓
-Agent response to user
+User: claws gmail read <id>
+  |
+  v
+claws-gmail CLI (container)
+  |
+  |-- 1. ClawsClient.get("/token?scopes=gmail.modify")
+  |       --> google-auth-server (host:8301)
+  |       <-- {"access_token": "ya29...", "expires_in": 3580}
+  |
+  |-- 2. httpx.get("https://gmail.googleapis.com/gmail/v1/users/me/messages/<id>",
+  |       headers={"Authorization": "Bearer ya29..."})
+  |       <-- {message JSON with payload, headers, body}
+  |
+  |-- 3. Parse message: decode body, extract headers (From, To, Subject, Date)
+  |
+  |-- 4. result(formatted_message)  --> stdout
+```
+
+### Gmail Send Flow
+
+```
+User: claws gmail send --to user@example.com --subject "Hi" --body "Hello"
+  |
+  v
+claws-gmail CLI (container)
+  |
+  |-- 1. Get token (same as read flow)
+  |
+  |-- 2. Build RFC 2822 message, base64url encode it
+  |
+  |-- 3. httpx.post(".../messages/send",
+  |       json={"raw": base64_encoded_message},
+  |       headers={"Authorization": "Bearer ya29..."})
+  |       <-- {"id": "...", "threadId": "...", "labelIds": [...]}
+  |
+  |-- 4. result({"id": ..., "threadId": ...})  --> stdout
+```
+
+### Gmail Search Flow
+
+```
+User: claws gmail search "from:boss subject:urgent"
+  |
+  v
+claws-gmail CLI (container)
+  |
+  |-- 1. Get token (same as read flow)
+  |
+  |-- 2. httpx.get(".../messages?q=from:boss+subject:urgent&maxResults=10")
+  |       <-- {"messages": [{"id": "...", "threadId": "..."}, ...]}
+  |
+  |-- 3. For each message ID: GET .../messages/{id}?format=metadata
+  |       (fetches headers: From, Subject, Date for display)
+  |
+  |-- 4. result(formatted_list)  --> stdout
 ```
 
 ### Error Flow
 
 ```
-Skill CLI
-    │
-    ├── Server unreachable → stderr: "Error: whisper server not running on :8300"
-    │                        exit code: 1
-    │
-    ├── Server returns 4xx/5xx → stderr: "Error: server returned 500: ..."
-    │                             exit code: 1
-    │
-    └── Success → stdout: result text
-                  exit code: 0
+claws-gmail CLI
+  |
+  ├── Auth server unreachable → crash("Cannot connect to google-auth server...")
+  |                              exit code: 2
+  |
+  ├── Auth server returns error → crash("Token error: ...")
+  |   (bad key, bad subject)     exit code: 2
+  |
+  ├── Gmail API 401 → fail("Authentication failed. Token may be expired.")
+  |                    exit code: 1
+  |
+  ├── Gmail API 404 → fail("Message not found: <id>")
+  |                    exit code: 1
+  |
+  ├── Gmail API 429 → fail("Gmail rate limit exceeded. Try again later.")
+  |                    exit code: 1
+  |
+  └── Success → result(data) → stdout, exit code: 0
 ```
 
-### Key Data Flows
-
-1. **Audio transcription:** Agent subprocess calls CLI with file path. CLI reads file from shared volume (`~/.openclaw/media/`), POSTs to whisper server, prints text to stdout. The file path is accessible because the media directory is a bind mount visible to both container and host.
-
-2. **Health checking:** Servers expose `GET /health`. Installation scripts or monitoring can verify servers are running. The `claws-common` client could optionally pre-check health before making requests, but this adds latency and is better left to the error flow.
-
-3. **Installation:** Skills install via `pip install git+https://...#subdirectory=skills/transcribe`. This pulls `claws-common` as a dependency automatically. Servers install on the host via venv + pip, then register a launchd plist.
-
-## Build Order (Dependency Graph)
+## Project Structure (New Files Only)
 
 ```
-Phase 1: claws-common
-    │     (no dependencies on other project packages)
-    │
-    ├──→ Phase 2a: servers-common
-    │         │     (no dependency on claws-common, parallel track)
-    │         │
-    │         └──→ Phase 3b: whisper-server
-    │               (depends on servers-common)
-    │
-    └──→ Phase 2b: claws-transcribe
-              (depends on claws-common)
-
-Phase 4: launchd plists + install scripts
-          (depends on servers existing)
-
-Phase 5: Integration testing
-          (depends on everything)
+lobster_claws/
+├── servers/
+│   └── google-auth/                        # NEW
+│       ├── pyproject.toml                  # depends on: google-auth, fastapi, uvicorn
+│       ├── src/google_auth_server/
+│       │   ├── __init__.py
+│       │   └── app.py                      # FastAPI app: /token, /health
+│       └── tests/
+│           └── test_app.py                 # Mock google.oauth2 credentials
+├── skills/
+│   └── gmail/                              # NEW
+│       ├── pyproject.toml                  # depends on: claws-common
+│       ├── src/claws_gmail/
+│       │   ├── __init__.py
+│       │   ├── cli.py                      # argparse: read, send, search subcommands
+│       │   └── gmail.py                    # Gmail API wrapper (httpx + bearer token)
+│       └── tests/
+│           ├── test_cli.py                 # Mock auth client + Gmail API calls
+│           └── test_gmail.py               # Mock httpx calls to Gmail API
+├── launchd/
+│   └── com.lobsterclaws.google-auth.plist  # NEW
+└── pyproject.toml                          # MODIFIED: add new workspace members
 ```
 
-**Critical path:** `claws-common` must be built first. After that, the server track (`servers-common` then `whisper-server`) and the skill track (`claws-transcribe`) can proceed in parallel. The two tracks converge at integration testing.
+### Structure Rationale
 
-Note: `servers-common` and `claws-common` have zero code dependency on each other. They live in different runtime environments (host vs container). Build them independently.
+- **`gmail.py` separate from `cli.py`:** Isolates Gmail API logic (message formatting, base64 encoding, pagination) from CLI argument parsing. The transcribe skill was simple enough for a single file; Gmail has enough API surface to warrant separation.
+- **`google_auth_server` not `claws_google_auth`:** Servers use their own naming convention (e.g., `whisper_server`), not the `claws_*` pattern which is reserved for skills.
+- **No `claws-common` changes:** The existing `ClawsClient.get()` method is sufficient for the `/token` endpoint call. No new HTTP methods needed.
 
-## Anti-Patterns
+## Architectural Patterns
 
-### Anti-Pattern 1: Fat CLI
+### Pattern 1: Token Vending Machine
 
-**What people do:** Put business logic, ML model loading, or complex processing in the container-side CLI.
-**Why it's wrong:** The container has no GPU, limited resources, and is meant to be a thin proxy. Complex logic in the CLI makes it hard to test, debug, and update independently.
-**Do this instead:** Keep CLIs to argument parsing + HTTP call + stdout. All logic in the server.
+**What:** The auth server's only job is issuing access tokens. It holds no business logic. Skills use the tokens however they need.
 
-### Anti-Pattern 2: Per-Service Host Variables
+**When to use:** When multiple skills need Google API access (Gmail now, Calendar later, Drive later).
 
-**What people do:** Create `WHISPER_HOST`, `RESY_HOST`, `SPOTIFY_HOST` -- a separate env var for each service.
-**Why it's wrong:** All services run on the same host. Multiple variables means multiple things to configure and multiple places to get wrong.
-**Do this instead:** Single `OPENCLAW_TOOLS_HOST` with per-service port numbers only.
+**Trade-offs:**
+- Pro: Single credential storage point, token caching shared across skills
+- Pro: Adding a new Google skill requires zero auth server changes
+- Con: Skills must handle Google API errors themselves (not centralized)
+- Con: Container makes outbound HTTPS calls (evolution from v1.0 proxy-only pattern)
 
-### Anti-Pattern 3: Shared Python Package Between Container and Host
+### Pattern 2: Scope-per-Request
 
-**What people do:** Make `claws-common` a dependency of both the CLI skills and the host servers, trying to share types/schemas.
-**Why it's wrong:** Container and host have different Python versions, different OS, different dependency constraints. Coupling them through a shared package creates version hell.
-**Do this instead:** Keep `claws-common` (container-side) and `servers-common` (host-side) completely separate. Use HTTP as the contract boundary. If you want schema validation on both sides, duplicate the simple Pydantic models -- it is cheaper than the coupling cost.
+**What:** The `/token` endpoint accepts scopes as a query parameter rather than having pre-configured scope sets per skill.
 
-### Anti-Pattern 4: Running Servers Without Process Supervision
+**When to use:** Per the "open token model" decision in PROJECT.md -- internal network, trusted skills only.
 
-**What people do:** Start servers with `uvicorn app:app` in a terminal and forget about it.
-**Why it's wrong:** Server dies silently after reboot, crash, or macOS sleep/wake. No logs, no restart.
-**Do this instead:** Use launchd plists with `RunAtLoad`, `KeepAlive`, and `StandardOutPath`/`StandardErrorPath` for log capture.
+**Trade-offs:**
+- Pro: Zero auth server changes when adding new skills or expanding scope needs
+- Con: Any skill can request any scope (acceptable per project decision; internal network only)
 
-### Anti-Pattern 5: Monolithic Server
+### Pattern 3: Two-Tier HTTP in a Single Skill
 
-**What people do:** Put all endpoints (transcribe, resy, spotify) in one big FastAPI app.
-**Why it's wrong:** Different services have different dependencies (mlx-whisper vs resy API client vs spotify SDK). One server's dependency conflict or crash takes down everything.
-**Do this instead:** One server per capability. Independent processes, independent failures, independent updates. The port convention (8300, 8301, 8302...) supports this naturally.
+**What:** The Gmail skill makes two different kinds of HTTP calls: (1) ClawsClient to the auth server on the host, (2) raw httpx to the Gmail REST API externally.
+
+**When to use:** When a skill needs both host-server resources (auth token) and external API access.
+
+**Trade-offs:**
+- Pro: Keeps ClawsClient focused on host-server communication with its service-aware errors
+- Pro: Gmail API errors get domain-specific handling (quota, rate limits, message formatting)
+- Con: More complex than the pure v1.0 pattern (one HTTP call type per skill)
 
 ## Integration Points
 
-### External: Container to Host
+### External Services
 
-| Boundary | Protocol | Notes |
-|----------|----------|-------|
-| Skill CLI to Host Server | HTTP (host.docker.internal:83XX) | Multipart file upload for transcribe; JSON for others |
-| Host Server to External APIs | HTTPS | Future servers (resy, spotify) proxy external API calls |
-| Host Server to ML Models | Local (in-process) | mlx-whisper loaded in server process memory |
+| Service | Integration Pattern | Notes |
+|---------|---------------------|-------|
+| Google OAuth2 Token Endpoint | `google-auth` library handles JWT -> access token exchange | Outbound from host only; service account key stays on host |
+| Gmail REST API v1 | Direct HTTPS from container with bearer token | Base URL: `https://gmail.googleapis.com/gmail/v1/` |
 
-### Internal: Package Dependencies
+### Internal Boundaries
 
 | Boundary | Communication | Notes |
 |----------|---------------|-------|
-| `claws-transcribe` to `claws-common` | Python import | Declared dependency in pyproject.toml |
-| `whisper-server` to `servers-common` | Python import | Declared dependency in pyproject.toml |
-| `claws-common` to `servers-common` | NONE | These must never depend on each other |
+| claws-gmail -> google-auth-server | ClawsClient HTTP GET (existing pattern) | Port 8301, GET /token?scopes=... |
+| claws-gmail -> Gmail API | Raw httpx HTTPS with bearer token | Not through ClawsClient |
+| google-auth-server -> Google OAuth2 | `google-auth` library (outbound from host) | JWT-based, no user interaction |
 
-### Deployment: Installation Flow
+### New Environment Variables
 
-| Target | Method | Notes |
-|--------|--------|-------|
-| Skills into container | `pip install git+...#subdirectory=skills/transcribe` | Pulls claws-common automatically |
-| Servers on host | `pip install -e servers/whisper` in a venv | Separate venv per server recommended |
-| launchd registration | `launchctl load ~/Library/LaunchAgents/com.lobsterclaws.whisper.plist` | Plist references venv Python path |
+| Variable | Set Where | Purpose | Example |
+|----------|-----------|---------|---------|
+| `GOOGLE_SERVICE_ACCOUNT_KEY` | launchd plist env | Path to JSON key file on host | `/Users/little-dank/.config/lobsterclaws/service-account.json` |
+| `GOOGLE_DELEGATED_USER` | launchd plist env | Workspace user email to impersonate | `agent@yourdomain.com` |
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Service Account Key in Container
+
+**What people do:** Mount or bake the service account JSON key into the Docker image/container.
+**Why it's wrong:** The key grants domain-wide access to all Workspace data. If the container is compromised, the attacker has full Google Workspace access. The key is a long-lived credential.
+**Do this instead:** Keep the key on the host only. The auth server vends short-lived (1-hour) access tokens. If a token leaks, it expires automatically.
+
+### Anti-Pattern 2: Using google-api-python-client for Gmail
+
+**What people do:** Install the full `google-api-python-client` (~20MB, discovery-based) to call Gmail.
+**Why it's wrong:** Adds heavy dependencies for 3 HTTP endpoints. The discovery document fetch adds startup latency. It pulls in `google-auth-httplib2` which conflicts with the httpx-based approach used throughout the codebase.
+**Do this instead:** Call the Gmail REST API directly with httpx + bearer token. The endpoints are stable and well-documented. This matches the existing pattern of using httpx for all HTTP.
+
+### Anti-Pattern 3: Per-Skill Auth Servers
+
+**What people do:** Create a separate auth+proxy server for each Google service (gmail-server, calendar-server).
+**Why it's wrong:** Duplicates credential management, token caching, and delegation logic across servers.
+**Do this instead:** One auth server that vends tokens for any scope. Skills handle API calls themselves.
+
+### Anti-Pattern 4: Hardcoding Scopes in the Auth Server
+
+**What people do:** Configure allowed scopes in the auth server, requiring server changes for each new skill.
+**Why it's wrong:** Creates coupling between the auth server and individual skills. Every new Google skill requires an auth server change and redeployment.
+**Do this instead:** Accept scopes as a request parameter (per the "open token model" decision).
+
+## Build Order (Dependency-Driven)
+
+```
+Phase 1: google-auth-server
+    │     (standalone; no dependency on Gmail skill)
+    │     Order: health endpoint -> token endpoint with mocked creds ->
+    │            real credential loading -> token caching
+    │
+    └──> Phase 2: claws-gmail
+              │   (depends on auth server for token vending)
+              │   Order: CLI arg parsing skeleton ->
+              │          auth token acquisition via ClawsClient ->
+              │          Gmail API wrapper (gmail.py) ->
+              │          integration: CLI -> auth -> Gmail -> output
+              │
+              └──> Phase 3: launchd plist + root pyproject.toml updates
+                        (depends on packages existing)
+```
+
+**Critical path:** google-auth-server must be built and testable first. The Gmail skill depends on being able to get tokens. The launchd plist and workspace config are mechanical tasks that come last.
 
 ## Scaling Considerations
 
-| Concern | Current (1 agent) | Future (multiple agents) |
-|---------|-------------------|--------------------------|
-| Server concurrency | Single uvicorn worker, async | Add `--workers N` to uvicorn; mlx-whisper is the bottleneck (GPU serialized) |
-| Port management | Manual assignment (8300+) | Could add a service registry, but premature -- just document the mapping |
-| Server isolation | One venv per server | Already isolated; no changes needed |
-| Skill installation | pip from git URL | Consider building wheels and hosting them (e.g., GitHub Releases) if pip-from-git gets slow |
+Not a traditional scaling concern (single user, single host), but relevant patterns:
 
-For this project's scale (single Mac mini, single OpenClaw instance), none of these scaling concerns are immediate. The one-server-per-capability pattern handles the foreseeable future.
+| Concern | At 1 Google skill | At 5 Google skills |
+|---------|--------------------|--------------------|
+| Token requests per command | 1 | 1 (same auth server, different scopes) |
+| Token caching benefit | Minimal | High (multiple skills share cached tokens for overlapping scopes) |
+| Auth server changes needed | N/A | Zero (scope-per-request design) |
+| Gmail API quota | 250 quota units/user/sec | Shared per-user quota across skills |
 
 ## Sources
 
-- [Python monorepo best practices (Graphite)](https://graphite.com/guides/python-monorepos) -- monorepo structure patterns
-- [Python monorepo with UV (Naor David Melamed, Feb 2026)](https://medium.com/@naorcho/building-a-python-monorepo-with-uv-the-modern-way-to-manage-multi-package-projects-4cbcc56df1b4) -- workspace configuration
-- [Tweag Python monorepo example](https://www.tweag.io/blog/2023-04-04-python-monorepo-1/) -- pyproject.toml per package, src layout
-- [FastAPI manual deployment](https://fastapi.tiangolo.com/deployment/manually/) -- uvicorn server setup
-- [launchd plist examples](https://alvinalexander.com/mac-os-x/launchd-examples-launchd-plist-file-examples-mac/) -- plist configuration
-- [Python service as launchd agent (AndyPi)](https://andypi.co.uk/2023/02/14/how-to-run-a-python-script-as-a-service-on-mac-os/) -- Python + launchd integration
-- [launchd.plist man page](https://keith.github.io/xcode-man-pages/launchd.plist.5.html) -- official plist reference
-- Project context: `.planning/PROJECT.md`, `data.md` (OpenClaw integration cheatsheet)
+- [Gmail API REST Reference](https://developers.google.com/workspace/gmail/api/reference/rest) -- endpoint documentation (HIGH confidence)
+- [google.oauth2.service_account docs](https://googleapis.dev/python/google-auth/latest/reference/google.oauth2.service_account.html) -- Python credential management (HIGH confidence)
+- [Domain-wide delegation setup](https://support.google.com/a/answer/162106?hl=en) -- Google Admin console configuration (HIGH confidence)
+- [OAuth 2.0 Server to Server](https://developers.google.com/identity/protocols/oauth2/service-account) -- JWT-based auth flow (HIGH confidence)
+- Existing codebase: `common/src/claws_common/client.py`, `servers/whisper/src/whisper_server/app.py`, `skills/transcribe/src/claws_transcribe/cli.py` (HIGH confidence)
 
 ---
-*Architecture research for: Python tools monorepo (Docker CLI skills + macOS host servers)*
-*Researched: 2026-03-17*
+*Architecture research for: Google auth + Gmail integration into lobster_claws*
+*Researched: 2026-03-19*
