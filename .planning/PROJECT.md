@@ -33,7 +33,16 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 ### Active
 
-(None — v1.1 milestone complete)
+- [ ] Calendar skill (list, get, create, update, delete events)
+
+## Current Milestone: v1.2 Google Calendar
+
+**Goal:** Add a Google Calendar skill using the existing auth server, giving the agent full CRUD access to manage calendar events.
+
+**Target features:**
+- Calendar skill — list events by time range, get event details, create/update/delete events
+- Same two-tier HTTP pattern as Gmail (auth server for tokens, direct Calendar API calls)
+- No auth server changes needed — just request calendar scopes
 
 ### Out of Scope
 
@@ -83,4 +92,4 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 | Full URL scopes (no short aliases) | No mapping table needed, matches Google docs exactly | ✓ Good |
 
 ---
-*Last updated: 2026-03-20 after v1.1 milestone shipped*
+*Last updated: 2026-03-20 after v1.2 milestone start*

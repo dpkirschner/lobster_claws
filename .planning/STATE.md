@@ -1,30 +1,34 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Google Integration + Gmail
-status: unknown
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-03-20T06:29:56.240Z"
+milestone: v1.2
+milestone_name: Google Calendar
+status: active
+stopped_at: null
+last_updated: "2026-03-20"
+last_activity: 2026-03-20 -- Milestone v1.2 started
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-19)
+See: .planning/PROJECT.md (updated 2026-03-20)
 
-**Core value:** Every skill follows the same pattern: thin CLI in container -> HTTP call to host server -> stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
-**Current focus:** Phase 05 — gmail-skill
+**Core value:** Every skill follows the same pattern: thin CLI in container → HTTP call to host server → stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
+**Current focus:** Defining requirements for v1.2
 
 ## Current Position
 
-Phase: 05 (gmail-skill) — COMPLETE
-Plan: 2 of 2 (all complete)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-20 — Milestone v1.2 started
 
 ## Accumulated Context
 
@@ -33,16 +37,9 @@ Plan: 2 of 2 (all complete)
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Milestone]: Google Workspace service account + domain-wide delegation (no OAuth refresh tokens)
-- [Milestone]: Open token model -- any skill, any scope; no per-skill ACLs for internal network
-- [Milestone]: Direct Gmail REST API via httpx rather than google-api-python-client
-- [Roadmap]: Two phases (coarse granularity) -- auth server foundation then Gmail skill on top
-- [Phase 04]: Renamed test_app.py to test_google_auth_app.py to avoid importlib module collision with whisper tests
-- [Phase 04]: Auth server binds 127.0.0.1 only (not 0.0.0.0) for security
-- [Phase 05-gmail-skill]: Two-tier HTTP pattern: ClawsClient for internal auth, raw httpx for external Gmail API
-- [Phase 05-02]: Renamed test files to unique names (test_gmail_cli.py) to avoid importlib module collisions
-- [Phase 05-02]: Moved conftest fixtures inline to avoid conftest plugin registration collisions
-- [Phase 05-02]: Renamed test files to unique names to avoid importlib module collisions
+- [Milestone]: Reuses existing Google auth server on port 8301 — zero auth changes needed
+- [Milestone]: Full CRUD on Calendar (list, get, create, update, delete)
+- [Milestone]: Same two-tier HTTP pattern as Gmail (ClawsClient for auth, raw httpx for Calendar API)
 
 ### Pending Todos
 
@@ -50,12 +47,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- Domain-wide delegation requires two-console setup (GCP + Workspace Admin). Auth server startup health check must validate end-to-end.
-- Auth server must bind 127.0.0.1 only (not 0.0.0.0) -- security critical.
-- User needs Google Workspace + service account configured before auth server can be tested against real APIs.
+- Google Workspace + service account delegation must be configured before Calendar skill can be tested against real APIs (same prerequisite as Gmail)
 
 ## Session Continuity
 
-Last session: 2026-03-20T06:22:33.564Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-03-20
+Stopped at: Milestone v1.2 initialization
 Resume file: None
