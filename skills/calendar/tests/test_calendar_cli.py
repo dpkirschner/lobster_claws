@@ -282,3 +282,314 @@ def test_timeout_error(monkeypatch):
 
         main()
         mock_crash.assert_called_once_with("timed out")
+
+
+# --- create: minimal ---
+
+
+def test_create_minimal(monkeypatch):
+    """create with --title, --start, --end calls create_event with required args only."""
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "claws-calendar",
+            "create",
+            "--title",
+            "Meeting",
+            "--start",
+            "2026-03-20T10:00:00",
+            "--end",
+            "2026-03-20T11:00:00",
+        ],
+    )
+    event = {"id": "new-001", "summary": "Meeting"}
+
+    with (
+        patch(
+            "claws_calendar.cli.create_event", return_value=event
+        ) as mock_create,
+        patch("claws_calendar.cli.result") as mock_result,
+    ):
+        from claws_calendar.cli import main
+
+        main()
+
+        mock_create.assert_called_once_with(
+            title="Meeting",
+            start="2026-03-20T10:00:00",
+            end="2026-03-20T11:00:00",
+            location=None,
+            description=None,
+            attendees=None,
+        )
+        mock_result.assert_called_once_with(event)
+
+
+# --- create: full ---
+
+
+def test_create_full(monkeypatch):
+    """create with all flags passes all fields including split attendees."""
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "claws-calendar",
+            "create",
+            "--title",
+            "Team Sync",
+            "--start",
+            "2026-03-20T10:00:00",
+            "--end",
+            "2026-03-20T11:00:00",
+            "--location",
+            "Room 42",
+            "--description",
+            "Weekly sync",
+            "--attendees",
+            "a@b.com,c@d.com",
+        ],
+    )
+    event = {"id": "new-002", "summary": "Team Sync"}
+
+    with (
+        patch(
+            "claws_calendar.cli.create_event", return_value=event
+        ) as mock_create,
+        patch("claws_calendar.cli.result") as mock_result,
+    ):
+        from claws_calendar.cli import main
+
+        main()
+
+        mock_create.assert_called_once_with(
+            title="Team Sync",
+            start="2026-03-20T10:00:00",
+            end="2026-03-20T11:00:00",
+            location="Room 42",
+            description="Weekly sync",
+            attendees=["a@b.com", "c@d.com"],
+        )
+        mock_result.assert_called_once_with(event)
+
+
+# --- create: all-day ---
+
+
+def test_create_all_day(monkeypatch):
+    """create with --date and --all-day computes end as date+1."""
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "claws-calendar",
+            "create",
+            "--title",
+            "Holiday",
+            "--date",
+            "2026-03-20",
+            "--all-day",
+        ],
+    )
+    event = {"id": "new-003", "summary": "Holiday"}
+
+    with (
+        patch(
+            "claws_calendar.cli.create_event", return_value=event
+        ) as mock_create,
+        patch("claws_calendar.cli.result") as mock_result,
+    ):
+        from claws_calendar.cli import main
+
+        main()
+
+        mock_create.assert_called_once_with(
+            title="Holiday",
+            start="2026-03-20",
+            end="2026-03-21",
+            all_day=True,
+            location=None,
+            description=None,
+            attendees=None,
+        )
+        mock_result.assert_called_once_with(event)
+
+
+# --- update: title only ---
+
+
+def test_update_title(monkeypatch):
+    """update with --title calls update_event with title only."""
+    monkeypatch.setattr(
+        "sys.argv",
+        ["claws-calendar", "update", "evt-001", "--title", "New Title"],
+    )
+    event = {"id": "evt-001", "summary": "New Title"}
+
+    with (
+        patch(
+            "claws_calendar.cli.update_event", return_value=event
+        ) as mock_update,
+        patch("claws_calendar.cli.result") as mock_result,
+    ):
+        from claws_calendar.cli import main
+
+        main()
+
+        mock_update.assert_called_once_with(
+            "evt-001",
+            title="New Title",
+            start=None,
+            end=None,
+            location=None,
+            description=None,
+            attendees=None,
+        )
+        mock_result.assert_called_once_with(event)
+
+
+# --- update: multiple fields ---
+
+
+def test_update_multiple_fields(monkeypatch):
+    """update with multiple flags passes all fields."""
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "claws-calendar",
+            "update",
+            "evt-002",
+            "--title",
+            "Updated",
+            "--start",
+            "2026-03-21T09:00:00",
+            "--end",
+            "2026-03-21T10:00:00",
+            "--location",
+            "Room 7",
+            "--description",
+            "New desc",
+            "--attendees",
+            "x@y.com",
+        ],
+    )
+    event = {"id": "evt-002", "summary": "Updated"}
+
+    with (
+        patch(
+            "claws_calendar.cli.update_event", return_value=event
+        ) as mock_update,
+        patch("claws_calendar.cli.result") as mock_result,
+    ):
+        from claws_calendar.cli import main
+
+        main()
+
+        mock_update.assert_called_once_with(
+            "evt-002",
+            title="Updated",
+            start="2026-03-21T09:00:00",
+            end="2026-03-21T10:00:00",
+            location="Room 7",
+            description="New desc",
+            attendees=["x@y.com"],
+        )
+        mock_result.assert_called_once_with(event)
+
+
+# --- delete ---
+
+
+def test_delete(monkeypatch):
+    """delete <id> calls delete_event and outputs result."""
+    monkeypatch.setattr("sys.argv", ["claws-calendar", "delete", "evt-001"])
+    resp = {"deleted": True, "event_id": "evt-001"}
+
+    with (
+        patch(
+            "claws_calendar.cli.delete_event", return_value=resp
+        ) as mock_delete,
+        patch("claws_calendar.cli.result") as mock_result,
+    ):
+        from claws_calendar.cli import main
+
+        main()
+
+        mock_delete.assert_called_once_with("evt-001")
+        mock_result.assert_called_once_with(resp)
+
+
+# --- write error handling ---
+
+
+def test_create_http_error(monkeypatch):
+    """HTTPStatusError from create_event triggers handle_calendar_error."""
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "claws-calendar",
+            "create",
+            "--title",
+            "Bad",
+            "--start",
+            "2026-03-20T10:00:00",
+            "--end",
+            "2026-03-20T11:00:00",
+        ],
+    )
+
+    mock_response = MagicMock()
+    mock_response.status_code = 400
+    error = httpx.HTTPStatusError(
+        "bad request", request=MagicMock(), response=mock_response
+    )
+
+    with (
+        patch("claws_calendar.cli.create_event", side_effect=error),
+        patch("claws_calendar.cli.handle_calendar_error") as mock_handler,
+    ):
+        from claws_calendar.cli import main
+
+        main()
+        mock_handler.assert_called_once_with(error)
+
+
+def test_update_http_error(monkeypatch):
+    """HTTPStatusError from update_event triggers handle_calendar_error."""
+    monkeypatch.setattr(
+        "sys.argv",
+        ["claws-calendar", "update", "evt-001", "--title", "Fail"],
+    )
+
+    mock_response = MagicMock()
+    mock_response.status_code = 403
+    error = httpx.HTTPStatusError(
+        "forbidden", request=MagicMock(), response=mock_response
+    )
+
+    with (
+        patch("claws_calendar.cli.update_event", side_effect=error),
+        patch("claws_calendar.cli.handle_calendar_error") as mock_handler,
+    ):
+        from claws_calendar.cli import main
+
+        main()
+        mock_handler.assert_called_once_with(error)
+
+
+def test_delete_http_error(monkeypatch):
+    """HTTPStatusError from delete_event triggers handle_calendar_error."""
+    monkeypatch.setattr("sys.argv", ["claws-calendar", "delete", "evt-bad"])
+
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    error = httpx.HTTPStatusError(
+        "not found", request=MagicMock(), response=mock_response
+    )
+
+    with (
+        patch("claws_calendar.cli.delete_event", side_effect=error),
+        patch("claws_calendar.cli.handle_calendar_error") as mock_handler,
+    ):
+        from claws_calendar.cli import main
+
+        main()
+        mock_handler.assert_called_once_with(error)
