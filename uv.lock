@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 members = [
     "claws-cli",
     "claws-common",
+    "claws-gmail",
     "claws-transcribe",
     "google-auth-server",
     "lobster-claws",
@@ -197,6 +198,17 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "httpx", specifier = ">=0.28" }]
+
+[[package]]
+name = "claws-gmail"
+version = "0.1.0"
+source = { editable = "skills/gmail" }
+dependencies = [
+    { name = "claws-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "claws-common", editable = "common" }]
 
 [[package]]
 name = "claws-transcribe"
@@ -520,6 +532,7 @@ source = { virtual = "." }
 dev = [
     { name = "claws-cli" },
     { name = "claws-common" },
+    { name = "claws-gmail" },
     { name = "claws-transcribe" },
     { name = "google-auth-server" },
     { name = "pytest" },
@@ -534,6 +547,7 @@ dev = [
 dev = [
     { name = "claws-cli", editable = "cli" },
     { name = "claws-common", editable = "common" },
+    { name = "claws-gmail", editable = "skills/gmail" },
     { name = "claws-transcribe", editable = "skills/transcribe" },
     { name = "google-auth-server", editable = "servers/google-auth" },
     { name = "pytest", specifier = ">=9.0" },
