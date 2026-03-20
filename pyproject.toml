@@ -10,13 +10,14 @@ package = false
 members = ["common", "cli", "skills/*", "servers/*"]
 
 [dependency-groups]
-dev = ["claws-cli", "claws-common", "claws-transcribe", "whisper-server", "google-auth-server", "ruff>=0.15", "pytest>=9.0", "pytest-httpx>=0.36"]
+dev = ["claws-cli", "claws-common", "claws-gmail", "claws-transcribe", "whisper-server", "google-auth-server", "ruff>=0.15", "pytest>=9.0", "pytest-httpx>=0.36"]
 
 [tool.uv.sources]
 claws-cli = { workspace = true }
 claws-common = { workspace = true }
 claws-transcribe = { workspace = true }
 whisper-server = { workspace = true }
+claws-gmail = { workspace = true }
 google-auth-server = { workspace = true }
 
 [tool.ruff]

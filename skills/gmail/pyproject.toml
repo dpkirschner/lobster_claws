@@ -1,0 +1,16 @@
+[project]
+name = "claws-gmail"
+version = "0.1.0"
+description = "Gmail skill for Lobster Claws"
+requires-python = ">=3.12"
+dependencies = ["claws-common"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.entry-points."claws.skills"]
+gmail = "claws_gmail.cli:main"
+
+[tool.uv.sources]
+claws-common = { workspace = true }
