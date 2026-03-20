@@ -28,9 +28,12 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 - ✓ Google auth server with service account + domain-wide delegation — v1.1 Phase 4
 - ✓ Auth server token caching, health endpoint, launchd auto-start — v1.1 Phase 4
 
+- ✓ Gmail skill reads inbox, sends emails, searches messages via Gmail REST API — v1.1 Phase 5
+- ✓ Gmail CLI registered as `claws gmail` with inbox/read/send/search subcommands — v1.1 Phase 5
+
 ### Active
 
-- [ ] Gmail skill (read, send, search)
+(None — v1.1 milestone complete)
 
 ## Current Milestone: v1.1 Google Integration + Gmail
 
@@ -55,7 +58,7 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 - **Shipped v1.0** with 904 lines of Python across 4 packages (claws-common, claws-cli, claws-transcribe, whisper-server)
 - **Tech stack**: uv workspaces, hatchling build backend, httpx, FastAPI, mlx-whisper, argparse
-- **72 tests** passing across all packages (Phase 4 added 28 new tests)
+- **100 tests** passing across all packages (v1.1 added 56 new tests)
 - **OpenClaw** is an AI agent platform running in Docker (`node:24-bookworm`). The container has Python 3 + pip but no GPU.
 - **Host** is an Apple Silicon Mac mini running macOS with Metal/Neural Engine access for ML inference.
 - **Networking**: Container reaches host via `host.docker.internal` with `OPENCLAW_TOOLS_HOST` env var override.
@@ -84,9 +87,11 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 | Google Workspace for agent identity | Service account + delegation = no OAuth refresh tokens, set-once auth | ✓ Good |
 | Open token model (any skill, any scope) | Simpler than per-skill ACLs; internal network only | ✓ Good |
-| Direct Gmail REST API over google-python-client | httpx + bearer token is lighter, matches existing patterns | — Pending |
+| Direct Gmail REST API over google-python-client | httpx + bearer token is lighter, matches existing patterns | ✓ Good |
+| Two-tier HTTP for external API skills | ClawsClient for internal auth server, raw httpx for external Gmail API | ✓ Good |
+| gmail.modify scope for all operations | Single scope covers read + send + modify, simplest approach | ✓ Good |
 | Auth server binds 127.0.0.1 only | Security: token minting endpoint must not be network-accessible | ✓ Good |
 | Full URL scopes (no short aliases) | No mapping table needed, matches Google docs exactly | ✓ Good |
 
 ---
-*Last updated: 2026-03-20 after Phase 4 completion*
+*Last updated: 2026-03-20 after v1.1 milestone completion*
