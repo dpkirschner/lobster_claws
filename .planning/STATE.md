@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Google Integration + Gmail
 status: unknown
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-03-20T05:34:38.891Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-03-20T05:37:45.225Z"
 progress:
   total_phases: 2
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -38,6 +38,7 @@ Recent decisions affecting current work:
 - [Milestone]: Direct Gmail REST API via httpx rather than google-api-python-client
 - [Roadmap]: Two phases (coarse granularity) -- auth server foundation then Gmail skill on top
 - [Phase 04]: Renamed test_app.py to test_google_auth_app.py to avoid importlib module collision with whisper tests
+- [Phase 04]: Auth server binds 127.0.0.1 only (not 0.0.0.0) for security
 
 ### Pending Todos
 
@@ -51,6 +52,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-20T05:34:37.743Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-03-20T05:37:45.223Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None

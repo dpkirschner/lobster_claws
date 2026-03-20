@@ -20,7 +20,7 @@ Requirements for Google Integration + Gmail milestone. Each maps to roadmap phas
 - [x] **AUTH-04**: Auth server accepts arbitrary scope sets via request parameter
 - [x] **AUTH-05**: Auth server exposes GET /health endpoint
 - [x] **AUTH-06**: Auth server binds to 127.0.0.1:8301 (not 0.0.0.0)
-- [ ] **AUTH-07**: Auth server managed by launchd plist with auto-start and restart
+- [x] **AUTH-07**: Auth server managed by launchd plist with auto-start and restart
 
 ### Gmail
 
@@ -75,7 +75,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUTH-04 | Phase 4 | Complete |
 | AUTH-05 | Phase 4 | Complete |
 | AUTH-06 | Phase 4 | Complete |
-| AUTH-07 | Phase 4 | Pending |
+| AUTH-07 | Phase 4 | Complete |
 | GMAIL-01 | Phase 5 | Pending |
 | GMAIL-02 | Phase 5 | Pending |
 | GMAIL-03 | Phase 5 | Pending |
