@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Google Calendar
 status: unknown
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-03-20T07:04:15.897Z"
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-03-20T07:08:44.218Z"
 progress:
   total_phases: 2
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -37,6 +37,7 @@ Recent decisions affecting current work:
 - [Milestone]: Same two-tier HTTP pattern as Gmail (ClawsClient for auth, raw httpx for Calendar API)
 - [Roadmap]: Split into read-first (Phase 6) then write operations (Phase 7) for natural dependency flow
 - [Phase 06]: Cloned Gmail skill pattern for Calendar: ClawsClient auth + raw httpx for API calls
+- [Phase 06]: Extracted _resolve_date_range helper for clean date flag logic separation in Calendar CLI
 
 ### Pending Todos
 
@@ -48,6 +49,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-20T07:04:15.895Z
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-03-20T07:08:44.215Z
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None

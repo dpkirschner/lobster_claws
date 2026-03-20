@@ -15,7 +15,7 @@ Requirements for Google Calendar milestone. Each maps to roadmap phases.
 - [ ] **CAL-04**: User can update an existing event's fields
 - [ ] **CAL-05**: User can delete an event by ID
 - [x] **CAL-06**: Calendar skill outputs structured JSON via stdout using claws_common.output
-- [ ] **CAL-07**: Calendar CLI registered as `claws calendar` via entry-point discovery
+- [x] **CAL-07**: Calendar CLI registered as `claws calendar` via entry-point discovery
 
 ## Future Requirements
 
@@ -53,7 +53,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CAL-04 | Phase 7 | Pending |
 | CAL-05 | Phase 7 | Pending |
 | CAL-06 | Phase 6 | Complete |
-| CAL-07 | Phase 6 | Pending |
+| CAL-07 | Phase 6 | Complete |
 
 **Coverage:**
 - v1.2 requirements: 7 total
