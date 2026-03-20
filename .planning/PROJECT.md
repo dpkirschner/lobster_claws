@@ -24,9 +24,12 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 - ✓ uv workspace monorepo with hatchling build backend — v1.0
 - ✓ README with repo structure, installation, server setup, new skill guide — v1.0
 
+- ✓ ClawsClient supports POST with JSON body and GET with query parameters — v1.1 Phase 4
+- ✓ Google auth server with service account + domain-wide delegation — v1.1 Phase 4
+- ✓ Auth server token caching, health endpoint, launchd auto-start — v1.1 Phase 4
+
 ### Active
 
-- [ ] Google auth server with service account + domain-wide delegation
 - [ ] Gmail skill (read, send, search)
 
 ## Current Milestone: v1.1 Google Integration + Gmail
@@ -52,7 +55,7 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 - **Shipped v1.0** with 904 lines of Python across 4 packages (claws-common, claws-cli, claws-transcribe, whisper-server)
 - **Tech stack**: uv workspaces, hatchling build backend, httpx, FastAPI, mlx-whisper, argparse
-- **44 tests** passing across all packages
+- **72 tests** passing across all packages (Phase 4 added 28 new tests)
 - **OpenClaw** is an AI agent platform running in Docker (`node:24-bookworm`). The container has Python 3 + pip but no GPU.
 - **Host** is an Apple Silicon Mac mini running macOS with Metal/Neural Engine access for ML inference.
 - **Networking**: Container reaches host via `host.docker.internal` with `OPENCLAW_TOOLS_HOST` env var override.
@@ -79,9 +82,11 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 | argparse over Click/Typer | Single-command tools don't need the overhead | ✓ Good |
 | Entry-point based skill discovery | `claws.skills` group lets skills self-register without central config | ✓ Good |
 
-| Google Workspace for agent identity | Service account + delegation = no OAuth refresh tokens, set-once auth | — Pending |
-| Open token model (any skill, any scope) | Simpler than per-skill ACLs; internal network only | — Pending |
+| Google Workspace for agent identity | Service account + delegation = no OAuth refresh tokens, set-once auth | ✓ Good |
+| Open token model (any skill, any scope) | Simpler than per-skill ACLs; internal network only | ✓ Good |
 | Direct Gmail REST API over google-python-client | httpx + bearer token is lighter, matches existing patterns | — Pending |
+| Auth server binds 127.0.0.1 only | Security: token minting endpoint must not be network-accessible | ✓ Good |
+| Full URL scopes (no short aliases) | No mapping table needed, matches Google docs exactly | ✓ Good |
 
 ---
-*Last updated: 2026-03-19 after v1.1 milestone start*
+*Last updated: 2026-03-20 after Phase 4 completion*
