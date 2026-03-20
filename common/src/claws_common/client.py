@@ -18,11 +18,28 @@ class ClawsClient:
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout
 
-    def get(self, path: str) -> dict:
+    def get(self, path: str, params: dict | None = None) -> dict:
         """GET request with error handling."""
         url = f"{self.base_url}{path}"
         try:
-            resp = httpx.get(url, timeout=self.timeout)
+            resp = httpx.get(url, params=params, timeout=self.timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.ConnectError:
+            raise ConnectionError(
+                f"Cannot connect to {self.service} server at {url}. "
+                f"Is the server running? Check: curl {self.base_url}/health"
+            )
+        except httpx.TimeoutException:
+            raise TimeoutError(
+                f"Request to {self.service} timed out after {self.timeout}s ({url})"
+            )
+
+    def post_json(self, path: str, data: dict) -> dict:
+        """POST JSON data with error handling."""
+        url = f"{self.base_url}{path}"
+        try:
+            resp = httpx.post(url, json=data, timeout=self.timeout)
             resp.raise_for_status()
             return resp.json()
         except httpx.ConnectError:

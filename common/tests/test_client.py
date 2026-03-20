@@ -46,6 +46,36 @@ def test_post_file_connection_error(httpx_mock, client, tmp_path):
         client.post_file("/transcribe", str(test_file))
 
 
+def test_post_json_success(httpx_mock, client):
+    httpx_mock.add_response(json={"access_token": "tok", "expires_in": 3600})
+    result = client.post_json("/token", {"scopes": ["https://www.googleapis.com/auth/gmail.readonly"]})
+    assert result == {"access_token": "tok", "expires_in": 3600}
+
+
+def test_post_json_connection_error(httpx_mock, client):
+    httpx_mock.add_exception(httpx.ConnectError("connection refused"))
+    with pytest.raises(ConnectionError, match="Cannot connect to test-service"):
+        client.post_json("/token", {"scopes": ["a"]})
+
+
+def test_post_json_timeout(httpx_mock, client):
+    httpx_mock.add_exception(httpx.ReadTimeout("timed out"))
+    with pytest.raises(TimeoutError, match="test-service"):
+        client.post_json("/token", {"scopes": ["a"]})
+
+
+def test_get_with_params(httpx_mock, client):
+    httpx_mock.add_response(json={"results": []})
+    result = client.get("/search", params={"q": "test", "limit": "10"})
+    assert result == {"results": []}
+
+
+def test_get_without_params_unchanged(httpx_mock, client):
+    httpx_mock.add_response(json={"status": "ok"})
+    result = client.get("/health")
+    assert result == {"status": "ok"}
+
+
 def test_client_uses_resolve_host():
     with patch("claws_common.client.resolve_host", return_value="custom-host"):
         c = ClawsClient(service="svc", port=8300)
