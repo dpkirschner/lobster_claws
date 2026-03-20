@@ -35,30 +35,19 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 (None — v1.1 milestone complete)
 
-## Current Milestone: v1.1 Google Integration + Gmail
-
-**Goal:** Add a reusable Google auth server using Workspace service account delegation, then build a Gmail skill on top of it.
-
-**Target features:**
-- Google auth server on host — holds service account key, serves access tokens to any skill
-- Gmail skill — read inbox, send emails, search by query via Gmail REST API
-- Launchd plist for google-auth server auto-start
-
 ### Out of Scope
 
 - Docker image build changes — skills install via pip, Dockerfile modifications are the OpenClaw repo's concern
 - Direct external API calls from container — all skills proxy through host servers
 - MCP protocol support — OpenClaw uses CLI-based tool invocation
 - GPU in container — ML inference runs on host Apple Silicon
-- Google Calendar skill — planned for v1.2
 - Per-skill scope enforcement on auth server — simpler open model chosen for now
-- Resy/Spotify skills — deferred, Google integration prioritized
 
 ## Context
 
-- **Shipped v1.0** with 904 lines of Python across 4 packages (claws-common, claws-cli, claws-transcribe, whisper-server)
-- **Tech stack**: uv workspaces, hatchling build backend, httpx, FastAPI, mlx-whisper, argparse
-- **100 tests** passing across all packages (v1.1 added 56 new tests)
+- **Shipped v1.1** with ~1,424 lines of Python across 6 packages (claws-common, claws-cli, claws-transcribe, claws-gmail, whisper-server, google-auth-server)
+- **Tech stack**: uv workspaces, hatchling build backend, httpx, FastAPI, mlx-whisper, google-auth, argparse
+- **100 tests** passing across all packages
 - **OpenClaw** is an AI agent platform running in Docker (`node:24-bookworm`). The container has Python 3 + pip but no GPU.
 - **Host** is an Apple Silicon Mac mini running macOS with Metal/Neural Engine access for ML inference.
 - **Networking**: Container reaches host via `host.docker.internal` with `OPENCLAW_TOOLS_HOST` env var override.
@@ -94,4 +83,4 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 | Full URL scopes (no short aliases) | No mapping table needed, matches Google docs exactly | ✓ Good |
 
 ---
-*Last updated: 2026-03-20 after v1.1 milestone completion*
+*Last updated: 2026-03-20 after v1.1 milestone shipped*
