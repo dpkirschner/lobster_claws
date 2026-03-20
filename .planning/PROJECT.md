@@ -31,9 +31,12 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 - ✓ Gmail skill reads inbox, sends emails, searches messages via Gmail REST API — v1.1 Phase 5
 - ✓ Gmail CLI registered as `claws gmail` with inbox/read/send/search subcommands — v1.1 Phase 5
 
+- ✓ Calendar skill lists events by date range and gets event details — v1.2 Phase 6
+- ✓ Calendar CLI registered as `claws calendar` with list/get subcommands — v1.2 Phase 6
+
 ### Active
 
-- [ ] Calendar skill (list, get, create, update, delete events)
+- [ ] Calendar write operations (create, update, delete events)
 
 ## Current Milestone: v1.2 Google Calendar
 
@@ -56,7 +59,7 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 - **Shipped v1.1** with ~1,424 lines of Python across 6 packages (claws-common, claws-cli, claws-transcribe, claws-gmail, whisper-server, google-auth-server)
 - **Tech stack**: uv workspaces, hatchling build backend, httpx, FastAPI, mlx-whisper, google-auth, argparse
-- **100 tests** passing across all packages
+- **130 tests** passing across all packages
 - **OpenClaw** is an AI agent platform running in Docker (`node:24-bookworm`). The container has Python 3 + pip but no GPU.
 - **Host** is an Apple Silicon Mac mini running macOS with Metal/Neural Engine access for ML inference.
 - **Networking**: Container reaches host via `host.docker.internal` with `OPENCLAW_TOOLS_HOST` env var override.
