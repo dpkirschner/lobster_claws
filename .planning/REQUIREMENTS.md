@@ -1,62 +1,65 @@
 # Requirements: Lobster Claws
 
-**Defined:** 2026-03-17
-**Core Value:** Every skill follows the same pattern: thin CLI in container -> HTTP call to host server -> stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
+**Defined:** 2026-03-19
+**Core Value:** Every skill follows the same pattern: thin CLI in container → HTTP call to host server → stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
 
-## v1 Requirements
+## v1.1 Requirements
 
-Requirements for initial release. Each maps to roadmap phases.
+Requirements for Google Integration + Gmail milestone. Each maps to roadmap phases.
 
-### Shared Library
+### Client Library
 
-- [x] **LIB-01**: Host resolution auto-detects Docker vs host environment via `.dockerenv`, cgroup check, and `OPENCLAW_TOOLS_HOST` env var override
-- [x] **LIB-02**: HTTP client wrapper provides POST/GET with configurable timeouts, connection error messages including service name and URL
-- [x] **LIB-03**: Structured output convention: result JSON to stdout, errors/diagnostics to stderr, exit codes 0/1/2
-- [x] **LIB-04**: Meta-CLI `claws` command discovers installed skills via Python entry points and routes to them
+- [ ] **CLI-01**: ClawsClient supports POST with JSON body (`post_json` method)
+- [ ] **CLI-02**: ClawsClient supports GET with query parameters
 
-### Whisper Server
+### Google Auth
 
-- [x] **WHSP-01**: FastAPI server exposes `POST /transcribe` accepting audio file upload, returns transcription text
-- [x] **WHSP-02**: Server exposes `GET /health` returning server status and loaded model info
-- [x] **WHSP-03**: Model selection parameter on `/transcribe` allows choosing whisper model per request
-- [x] **WHSP-04**: Model preloading keeps the default model in memory between requests for faster response
+- [ ] **AUTH-01**: Auth server loads service account JSON key from configured path
+- [ ] **AUTH-02**: Auth server mints access tokens using domain-wide delegation with configurable subject
+- [ ] **AUTH-03**: Auth server caches tokens and refreshes before expiry (~55 min TTL)
+- [ ] **AUTH-04**: Auth server accepts arbitrary scope sets via request parameter
+- [ ] **AUTH-05**: Auth server exposes GET /health endpoint
+- [ ] **AUTH-06**: Auth server binds to 127.0.0.1:8301 (not 0.0.0.0)
+- [ ] **AUTH-07**: Auth server managed by launchd plist with auto-start and restart
 
-### Transcribe Skill
+### Gmail
 
-- [x] **TRNS-01**: `claws-transcribe` CLI accepts audio file path, POSTs to whisper server, prints transcription to stdout
-- [x] **TRNS-02**: `--format` flag switches output between plain text and JSON
-- [x] **TRNS-03**: `--model` flag allows choosing whisper model for the request
-- [x] **TRNS-04**: Runs with `PYTHONUNBUFFERED=1` for Docker compatibility
+- [ ] **GMAIL-01**: User can list inbox messages with sender, subject, date, and snippet
+- [ ] **GMAIL-02**: User can read a message by ID with full plain-text body extracted from MIME
+- [ ] **GMAIL-03**: User can send an email with to, subject, and body
+- [ ] **GMAIL-04**: User can search messages using Gmail query syntax (from:, subject:, etc.)
+- [ ] **GMAIL-05**: Gmail skill outputs structured JSON via stdout using claws_common.output
+- [ ] **GMAIL-06**: Gmail CLI registered as `claws gmail` via entry-point discovery
 
-### Infrastructure
+## Future Requirements
 
-- [x] **INFR-01**: launchd plist auto-starts and restarts whisper server on Mac mini
-- [x] **INFR-02**: Standard Python `.gitignore` for monorepo
-- [x] **INFR-03**: uv workspace configuration with root `pyproject.toml` managing all packages
-- [x] **INFR-04**: Top-level README covering repo structure, skill installation, server setup, and how to add new skills
+### Gmail Enhancements (v1.1.x)
 
-## v2 Requirements
+- **GMAIL-07**: User can view an email thread by thread ID
+- **GMAIL-08**: User can see attachment metadata (filename, type, size) in message output
+- **GMAIL-09**: User can filter messages by label
+- **GMAIL-10**: User can reply to a message maintaining thread continuity (In-Reply-To headers)
+- **GMAIL-11**: User can mark messages as read/unread
 
-### Operations
+### Google Calendar (v1.2)
 
-- **OPS-01**: `claws status` health dashboard checking all registered servers
-- **OPS-02**: Request queuing for concurrent whisper calls
-- **OPS-03**: MLX memory cache clearing between requests
-
-### Additional Skills
-
-- **SKILL-01**: Resy reservation skill + server
-- **SKILL-02**: Spotify control skill + server
+- **CAL-01**: User can list upcoming calendar events
+- **CAL-02**: User can create calendar events
+- **CAL-03**: User can modify or cancel calendar events
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Direct external API calls from container | All skills proxy through host servers -- centralized auth/logging |
-| MCP protocol support | OpenClaw uses CLI-based tool invocation, not MCP |
-| GPU in container | No CUDA/GPU access; ML inference runs on host Apple Silicon |
-| Docker image modifications | Skills install via pip; Dockerfile changes are OpenClaw repo's concern |
-| Plugin auto-discovery via filesystem | Over-engineered; entry points are the right mechanism |
+| OAuth2 web flow | Service account + delegation is set-once, no browser interaction needed |
+| google-api-python-client library | Heavy dependency; direct REST via httpx matches existing patterns |
+| Attachment download | Needs a consuming skill to process attachments; list metadata only |
+| Email deletion | Destructive, irreversible; defer until agent trust model established |
+| Draft management | Adds human-in-the-loop step; direct send fits autonomous agent pattern |
+| Per-skill scope enforcement | Over-engineering for single-user, internal-network system |
+| Real-time push notifications | Requires public webhook URL; agent polls on demand instead |
+| HTML email rendering | Agent processes text; text/plain extraction with snippet fallback sufficient |
+| Resy/Spotify skills | Deferred; Google integration prioritized |
 
 ## Traceability
 
@@ -64,28 +67,27 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LIB-01 | Phase 1: Foundation | Complete |
-| LIB-02 | Phase 1: Foundation | Complete |
-| LIB-03 | Phase 1: Foundation | Complete |
-| LIB-04 | Phase 3: Discovery and Documentation | Complete |
-| WHSP-01 | Phase 2: Transcription Skill | Complete |
-| WHSP-02 | Phase 2: Transcription Skill | Complete |
-| WHSP-03 | Phase 2: Transcription Skill | Complete |
-| WHSP-04 | Phase 2: Transcription Skill | Complete |
-| TRNS-01 | Phase 2: Transcription Skill | Complete |
-| TRNS-02 | Phase 2: Transcription Skill | Complete |
-| TRNS-03 | Phase 2: Transcription Skill | Complete |
-| TRNS-04 | Phase 2: Transcription Skill | Complete |
-| INFR-01 | Phase 2: Transcription Skill | Complete |
-| INFR-02 | Phase 1: Foundation | Complete |
-| INFR-03 | Phase 1: Foundation | Complete |
-| INFR-04 | Phase 3: Discovery and Documentation | Complete |
+| CLI-01 | — | Pending |
+| CLI-02 | — | Pending |
+| AUTH-01 | — | Pending |
+| AUTH-02 | — | Pending |
+| AUTH-03 | — | Pending |
+| AUTH-04 | — | Pending |
+| AUTH-05 | — | Pending |
+| AUTH-06 | — | Pending |
+| AUTH-07 | — | Pending |
+| GMAIL-01 | — | Pending |
+| GMAIL-02 | — | Pending |
+| GMAIL-03 | — | Pending |
+| GMAIL-04 | — | Pending |
+| GMAIL-05 | — | Pending |
+| GMAIL-06 | — | Pending |
 
 **Coverage:**
-- v1 requirements: 16 total
-- Mapped to phases: 16
-- Unmapped: 0
+- v1.1 requirements: 15 total
+- Mapped to phases: 0
+- Unmapped: 15 ⚠️
 
 ---
-*Requirements defined: 2026-03-17*
-*Last updated: 2026-03-17 after roadmap creation*
+*Requirements defined: 2026-03-19*
+*Last updated: 2026-03-19 after initial definition*
