@@ -25,6 +25,7 @@ STARTUP_VALIDATION_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 class TokenRequest(BaseModel):
     scopes: list[str]
+    subject: str | None = None
 
 
 @asynccontextmanager
@@ -41,14 +42,14 @@ async def lifespan(app: FastAPI):
         sys.exit(1)
 
     print(f"Loading service account key from: {key_path}", file=sys.stderr)
-    base_creds = service_account.Credentials.from_service_account_file(
-        key_path, subject=subject
-    )
+    base_creds = service_account.Credentials.from_service_account_file(key_path)
 
     # Validate delegation by minting a real token
     print(f"Validating delegation for {subject}...", file=sys.stderr)
     try:
-        validation_creds = base_creds.with_scopes(STARTUP_VALIDATION_SCOPES)
+        validation_creds = base_creds.with_subject(subject).with_scopes(
+            STARTUP_VALIDATION_SCOPES
+        )
         validation_creds.refresh(google_auth_transport.Request())
         print("Delegation validated successfully", file=sys.stderr)
     except Exception as e:
@@ -62,6 +63,7 @@ async def lifespan(app: FastAPI):
         sys.exit(1)
 
     app.state.base_creds = base_creds
+    app.state.default_subject = subject
     app.state.delegated_user = subject
     app.state.verified_scopes = STARTUP_VALIDATION_SCOPES
     app.state.token_cache = {}
@@ -88,7 +90,8 @@ async def get_token(req: TokenRequest):
     if not req.scopes:
         raise HTTPException(status_code=400, detail="scopes must not be empty")
 
-    cache_key = frozenset(req.scopes)
+    effective_subject = req.subject or app.state.default_subject
+    cache_key = (frozenset(req.scopes), effective_subject)
     now = time.time()
 
     # Return cached token if >60s remaining
@@ -101,7 +104,9 @@ async def get_token(req: TokenRequest):
         }
 
     # Mint new token with one retry for transient errors
-    creds = app.state.base_creds.with_scopes(list(req.scopes))
+    creds = app.state.base_creds.with_subject(effective_subject).with_scopes(
+        list(req.scopes)
+    )
     last_error = None
     for attempt in range(2):
         try:
@@ -114,7 +119,7 @@ async def get_token(req: TokenRequest):
     else:
         raise HTTPException(
             status_code=503,
-            detail=f"Failed to mint token after retry: {last_error}",
+            detail=f"Failed to mint token for {effective_subject} after retry: {last_error}",
         )
 
     expires_at = creds.expiry.timestamp()
