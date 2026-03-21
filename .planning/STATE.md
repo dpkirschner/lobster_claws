@@ -2,16 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Multi-Agent Identity + Google Drive
-status: active
-stopped_at: null
-last_updated: "2026-03-21"
-last_activity: 2026-03-21 -- Roadmap created for v1.3
+status: unknown
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-03-21T23:10:32.640Z"
 progress:
   total_phases: 2
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 2
+  completed_plans: 1
 ---
 
 # Project State
@@ -21,16 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Every skill follows the same pattern: thin CLI in container -> HTTP call to host server -> stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
-**Current focus:** Phase 8 - Multi-Agent Identity
+**Current focus:** Phase 08 — multi-agent-identity
 
 ## Current Position
 
-Phase: 8 of 9 (Multi-Agent Identity)
-Plan: 0 of ? in current phase
-Status: Ready to plan
-Last activity: 2026-03-21 -- Roadmap created for v1.3 milestone
-
-Progress: [░░░░░░░░░░] 0% (0/2 v1.3 phases)
+Phase: 08 (multi-agent-identity) — EXECUTING
+Plan: 2 of 2
 
 ## Accumulated Context
 
@@ -40,6 +34,8 @@ Progress: [░░░░░░░░░░] 0% (0/2 v1.3 phases)
 - [Milestone]: Auth server POST /token gets optional subject field, falls back to GOOGLE_DELEGATED_USER
 - [Milestone]: Token cache key becomes (subject, frozenset(scopes))
 - [Milestone]: Identity is static per agent -- researcher@domain.com is always the same agent
+- [Phase 08]: base_creds stored without subject at startup; with_subject() called per-request
+- [Phase 08]: Cache key is (frozenset(scopes), effective_subject) tuple for subject isolation
 
 ### Pending Todos
 
@@ -52,6 +48,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21
-Stopped at: Roadmap created for v1.3 milestone
+Last session: 2026-03-21T23:10:32.638Z
+Stopped at: Completed 08-01-PLAN.md
 Resume file: None
