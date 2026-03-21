@@ -44,15 +44,6 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 (None — v1.3 milestone complete)
 
-## Current Milestone: v1.3 Multi-Agent Identity + Google Drive
-
-**Goal:** Enable per-agent Google Workspace identity via `--as` flag, update existing skills to support it, and add a Google Drive skill.
-
-**Target features:**
-- Auth server accepts optional `subject` field on POST /token
-- `--as user@domain.com` flag on all Google skills (gmail, calendar, drive)
-- Gmail + Calendar updated to pass `--as` through to auth server
-- Drive skill — list files, download, upload via Google Drive REST API
 
 ### Out of Scope
 
@@ -64,10 +55,10 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 ## Context
 
-- **Shipped v1.2** with ~3,100 lines of Python across 7 packages (claws-common, claws-cli, claws-transcribe, claws-gmail, claws-calendar, whisper-server, google-auth-server)
+- **Shipped v1.3** with ~4,000+ lines of Python across 8 packages (claws-common, claws-cli, claws-transcribe, claws-gmail, claws-calendar, claws-drive, whisper-server, google-auth-server)
 - **Tech stack**: uv workspaces, hatchling build backend, httpx, FastAPI, mlx-whisper, google-auth, argparse
 - **207 tests** passing across all packages
-- **4 skills**: transcribe, gmail, calendar, drive
+- **4 skills**: transcribe, gmail (read/send/search), calendar (list/get/create/update/delete), drive (list/download/upload)
 - **2 servers**: whisper (port 8300), google-auth (port 8301)
 - **OpenClaw** is an AI agent platform running in Docker (`node:24-bookworm`). The container has Python 3 + pip but no GPU.
 - **Host** is an Apple Silicon Mac mini running macOS with Metal/Neural Engine access for ML inference.
@@ -106,4 +97,4 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 | --as flag for per-agent identity | Each agent gets its own Workspace user, skills pass subject to auth server | — Pending |
 
 ---
-*Last updated: 2026-03-21 after v1.3 milestone start*
+*Last updated: 2026-03-21 after v1.3 milestone shipped*

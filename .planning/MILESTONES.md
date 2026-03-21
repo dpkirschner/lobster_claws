@@ -1,5 +1,19 @@
 # Milestones
 
+## v1.3 Multi-Agent Identity + Google Drive (Shipped: 2026-03-21)
+
+**Phases completed:** 2 phases, 4 plans, 15 commits
+
+**Key accomplishments:**
+
+- Auth server refactored for per-request subject delegation — `with_subject()` per request, subject-free `base_creds`, cache key `(scopes, subject)`
+- `--as user@domain.com` flag added to Gmail (4 functions) and Calendar (5 functions) with full backward compatibility
+- Google Drive skill with list, download (binary + Google Docs auto-export), upload (multipart/related construction)
+- `claws drive` CLI with list/download/upload subcommands and `--as` identity support from day one
+- 207 total tests (56 new), zero regressions across 8 packages
+
+---
+
 ## v1.2 Google Calendar (Shipped: 2026-03-21)
 
 **Phases completed:** 2 phases, 4 plans, 12 commits, ~1,700 LOC Python in calendar package
