@@ -57,11 +57,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Two requests with the same scopes but different subjects receive different cached tokens (no cross-agent collision)
   4. User can run `claws gmail inbox --as alice@domain.com` and see Alice's inbox
   5. User can run `claws calendar list --as bob@domain.com` and see Bob's calendar
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 08-01: TBD
-- [ ] 08-02: TBD
+- [ ] 08-01-PLAN.md — Auth server per-request subject delegation with cache key fix
+- [ ] 08-02-PLAN.md — Gmail and Calendar --as flag with subject threading
 
 ### Phase 9: Google Drive Skill
 **Goal**: Agent can browse, download, and upload files in any user's Google Drive
@@ -90,5 +90,5 @@ Plans:
 | 5. Gmail Skill | v1.1 | 2/2 | Complete | 2026-03-20 |
 | 6. Calendar Read Operations | v1.2 | 2/2 | Complete | 2026-03-20 |
 | 7. Calendar Write Operations | v1.2 | 2/2 | Complete | 2026-03-20 |
-| 8. Multi-Agent Identity | v1.3 | 0/? | Not started | - |
+| 8. Multi-Agent Identity | v1.3 | 0/2 | Not started | - |
 | 9. Google Drive Skill | v1.3 | 0/? | Not started | - |
