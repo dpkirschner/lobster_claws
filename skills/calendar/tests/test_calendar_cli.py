@@ -208,6 +208,118 @@ def test_list_max(monkeypatch):
         assert mock_list.call_args.kwargs["max_results"] == 5
 
 
+# --- --as flag ---
+
+
+def test_list_with_as_flag(monkeypatch):
+    """list --as bob@example.com passes as_user to list_events."""
+    monkeypatch.setattr("sys.argv", ["claws-calendar", "--as", "bob@example.com", "list"])
+    fake_today = date(2026, 3, 20)
+
+    with (
+        patch("claws_calendar.cli.date") as mock_date,
+        patch("claws_calendar.cli.list_events", return_value=[]) as mock_list,
+        patch("claws_calendar.cli.date_to_rfc3339", side_effect=_fake_rfc3339),
+        patch("claws_calendar.cli.result"),
+    ):
+        mock_date.today.return_value = fake_today
+        mock_date.fromisoformat = date.fromisoformat
+
+        from claws_calendar.cli import main
+
+        main()
+
+        assert mock_list.call_args.kwargs["as_user"] == "bob@example.com"
+
+
+def test_list_without_as_flag(monkeypatch):
+    """list without --as passes as_user=None."""
+    monkeypatch.setattr("sys.argv", ["claws-calendar", "list"])
+    fake_today = date(2026, 3, 20)
+
+    with (
+        patch("claws_calendar.cli.date") as mock_date,
+        patch("claws_calendar.cli.list_events", return_value=[]) as mock_list,
+        patch("claws_calendar.cli.date_to_rfc3339", side_effect=_fake_rfc3339),
+        patch("claws_calendar.cli.result"),
+    ):
+        mock_date.today.return_value = fake_today
+        mock_date.fromisoformat = date.fromisoformat
+
+        from claws_calendar.cli import main
+
+        main()
+
+        assert mock_list.call_args.kwargs["as_user"] is None
+
+
+def test_get_with_as_flag(monkeypatch):
+    """get --as bob@example.com passes as_user to get_event."""
+    monkeypatch.setattr("sys.argv", ["claws-calendar", "--as", "bob@example.com", "get", "evt-001"])
+    event = {"id": "evt-001", "summary": "Standup"}
+
+    with (
+        patch("claws_calendar.cli.get_event", return_value=event) as mock_get,
+        patch("claws_calendar.cli.result"),
+    ):
+        from claws_calendar.cli import main
+
+        main()
+        mock_get.assert_called_once_with("evt-001", as_user="bob@example.com")
+
+
+def test_create_with_as_flag(monkeypatch):
+    """create --as bob@example.com passes as_user to create_event."""
+    monkeypatch.setattr(
+        "sys.argv",
+        ["claws-calendar", "--as", "bob@example.com", "create", "--title", "Meeting",
+         "--start", "2026-03-20T10:00:00", "--end", "2026-03-20T11:00:00"],
+    )
+    event = {"id": "new-001", "summary": "Meeting"}
+
+    with (
+        patch("claws_calendar.cli.create_event", return_value=event) as mock_create,
+        patch("claws_calendar.cli.result"),
+    ):
+        from claws_calendar.cli import main
+
+        main()
+        assert mock_create.call_args.kwargs["as_user"] == "bob@example.com"
+
+
+def test_update_with_as_flag(monkeypatch):
+    """update --as bob@example.com passes as_user to update_event."""
+    monkeypatch.setattr(
+        "sys.argv",
+        ["claws-calendar", "--as", "bob@example.com", "update", "evt-001", "--title", "New"],
+    )
+    event = {"id": "evt-001", "summary": "New"}
+
+    with (
+        patch("claws_calendar.cli.update_event", return_value=event) as mock_update,
+        patch("claws_calendar.cli.result"),
+    ):
+        from claws_calendar.cli import main
+
+        main()
+        assert mock_update.call_args.kwargs["as_user"] == "bob@example.com"
+
+
+def test_delete_with_as_flag(monkeypatch):
+    """delete --as bob@example.com passes as_user to delete_event."""
+    monkeypatch.setattr("sys.argv", ["claws-calendar", "--as", "bob@example.com", "delete", "evt-001"])
+    resp = {"deleted": True, "event_id": "evt-001"}
+
+    with (
+        patch("claws_calendar.cli.delete_event", return_value=resp) as mock_delete,
+        patch("claws_calendar.cli.result"),
+    ):
+        from claws_calendar.cli import main
+
+        main()
+        mock_delete.assert_called_once_with("evt-001", as_user="bob@example.com")
+
+
 # --- get ---
 
 

@@ -92,6 +92,94 @@ def test_get_access_token(mock_auth_client):
     )
 
 
+def test_get_access_token_with_subject(mock_auth_client):
+    """get_access_token(as_user=...) includes subject in auth server POST body."""
+    token = get_access_token(as_user="bob@example.com")
+    assert token == "test-token"
+    mock_auth_client.post_json.assert_called_once_with(
+        "/token",
+        {"scopes": ["https://www.googleapis.com/auth/calendar"], "subject": "bob@example.com"},
+    )
+
+
+def test_get_access_token_without_subject(mock_auth_client):
+    """get_access_token() without as_user does NOT include subject in body."""
+    token = get_access_token()
+    assert token == "test-token"
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert "subject" not in body
+
+
+def test_list_events_passes_subject(mock_auth_client, mock_httpx):
+    """list_events(as_user=...) threads as_user through to get_access_token."""
+    response = MagicMock()
+    response.json.return_value = {"items": []}
+    response.raise_for_status = MagicMock()
+    mock_httpx.get.return_value = response
+
+    list_events(as_user="bob@example.com")
+
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert body["subject"] == "bob@example.com"
+
+
+def test_get_event_passes_subject(mock_auth_client, mock_httpx, sample_timed_event):
+    """get_event(event_id, as_user=...) threads as_user through."""
+    response = MagicMock()
+    response.json.return_value = sample_timed_event
+    response.raise_for_status = MagicMock()
+    mock_httpx.get.return_value = response
+
+    get_event("evt-001", as_user="bob@example.com")
+
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert body["subject"] == "bob@example.com"
+
+
+def test_create_event_passes_subject(mock_auth_client, mock_httpx, sample_timed_event):
+    """create_event(..., as_user=...) threads as_user through."""
+    response = MagicMock()
+    response.json.return_value = sample_timed_event
+    response.raise_for_status = MagicMock()
+    mock_httpx.post.return_value = response
+
+    create_event("Test", "2026-03-20T10:00:00Z", "2026-03-20T11:00:00Z", as_user="bob@example.com")
+
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert body["subject"] == "bob@example.com"
+
+
+def test_update_event_passes_subject(mock_auth_client, mock_httpx, sample_timed_event):
+    """update_event(event_id, as_user=...) threads as_user through."""
+    response = MagicMock()
+    response.json.return_value = sample_timed_event
+    response.raise_for_status = MagicMock()
+    mock_httpx.put.return_value = response
+
+    update_event("evt-001", title="New", as_user="bob@example.com")
+
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert body["subject"] == "bob@example.com"
+
+
+def test_delete_event_passes_subject(mock_auth_client, mock_httpx):
+    """delete_event(event_id, as_user=...) threads as_user through."""
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    mock_httpx.delete.return_value = response
+
+    delete_event("evt-001", as_user="bob@example.com")
+
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert body["subject"] == "bob@example.com"
+
+
 # --- list_events ---
 
 
