@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Multi-Agent Identity + Google Drive
 status: unknown
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-03-21T23:10:32.640Z"
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-03-21T23:18:45.545Z"
 progress:
   total_phases: 2
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -36,6 +36,7 @@ Plan: 2 of 2
 - [Milestone]: Identity is static per agent -- researcher@domain.com is always the same agent
 - [Phase 08]: base_creds stored without subject at startup; with_subject() called per-request
 - [Phase 08]: Cache key is (frozenset(scopes), effective_subject) tuple for subject isolation
+- [Phase 08]: Used as_user parameter name to avoid conflict with email subject in send_message
 
 ### Pending Todos
 
@@ -48,6 +49,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T23:10:32.638Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-03-21T23:18:45.542Z
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None

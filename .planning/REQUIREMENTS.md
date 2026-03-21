@@ -12,8 +12,8 @@ Requirements for Multi-Agent Identity + Google Drive milestone. Each maps to roa
 - [x] **ID-01**: Auth server accepts optional `subject` field on POST /token for per-agent identity
 - [x] **ID-02**: Auth server caches tokens by (subject, scopes) tuple, not scopes alone
 - [x] **ID-03**: Auth server falls back to `GOOGLE_DELEGATED_USER` when no subject provided
-- [ ] **ID-04**: Gmail skill accepts `--as user@domain.com` flag and passes subject to auth server
-- [ ] **ID-05**: Calendar skill accepts `--as user@domain.com` flag and passes subject to auth server
+- [x] **ID-04**: Gmail skill accepts `--as user@domain.com` flag and passes subject to auth server
+- [x] **ID-05**: Calendar skill accepts `--as user@domain.com` flag and passes subject to auth server
 
 ### Drive
 
@@ -57,8 +57,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ID-01 | Phase 8 | Complete |
 | ID-02 | Phase 8 | Complete |
 | ID-03 | Phase 8 | Complete |
-| ID-04 | Phase 8 | Pending |
-| ID-05 | Phase 8 | Pending |
+| ID-04 | Phase 8 | Complete |
+| ID-05 | Phase 8 | Complete |
 | DRV-01 | Phase 9 | Pending |
 | DRV-02 | Phase 9 | Pending |
 | DRV-03 | Phase 9 | Pending |
