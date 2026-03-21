@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 import httpx as real_httpx
 import pytest
-
 from claws_drive.drive import (
     DRIVE_SCOPE,
     download_file,
@@ -13,7 +12,6 @@ from claws_drive.drive import (
     list_files,
     upload_file,
 )
-
 
 # --- fixtures ---
 

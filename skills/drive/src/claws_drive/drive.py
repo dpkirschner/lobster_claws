@@ -10,7 +10,6 @@ import mimetypes
 import uuid
 
 import httpx
-
 from claws_common.client import ClawsClient
 from claws_common.output import crash, fail
 
@@ -182,7 +181,7 @@ def upload_file(
         f"{json.dumps(metadata)}\r\n"
         f"--{boundary}\r\n"
         f"Content-Type: {mime_type}\r\n\r\n"
-    ).encode("utf-8") + file_bytes + f"\r\n--{boundary}--".encode("utf-8")
+    ).encode() + file_bytes + f"\r\n--{boundary}--".encode()
 
     resp = httpx.post(
         f"{DRIVE_UPLOAD_BASE}/files?uploadType=multipart",

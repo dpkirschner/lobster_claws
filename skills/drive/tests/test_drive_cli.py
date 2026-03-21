@@ -1,10 +1,9 @@
 """Tests for Drive CLI entry point (subcommand routing)."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
-
 
 # --- list ---
 
