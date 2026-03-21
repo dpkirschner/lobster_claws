@@ -37,7 +37,20 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 ### Active
 
-(None — v1.2 milestone complete)
+- [ ] Multi-agent identity via `--as` flag on all Google skills
+- [ ] Auth server accepts `subject` per token request
+- [ ] Gmail and Calendar skills updated with `--as` flag
+- [ ] Google Drive skill (list, download, upload)
+
+## Current Milestone: v1.3 Multi-Agent Identity + Google Drive
+
+**Goal:** Enable per-agent Google Workspace identity via `--as` flag, update existing skills to support it, and add a Google Drive skill.
+
+**Target features:**
+- Auth server accepts optional `subject` field on POST /token
+- `--as user@domain.com` flag on all Google skills (gmail, calendar, drive)
+- Gmail + Calendar updated to pass `--as` through to auth server
+- Drive skill — list files, download, upload via Google Drive REST API
 
 ### Out of Scope
 
@@ -88,5 +101,7 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 | Auth server binds 127.0.0.1 only | Security: token minting endpoint must not be network-accessible | ✓ Good |
 | Full URL scopes (no short aliases) | No mapping table needed, matches Google docs exactly | ✓ Good |
 
+| --as flag for per-agent identity | Each agent gets its own Workspace user, skills pass subject to auth server | — Pending |
+
 ---
-*Last updated: 2026-03-21 after v1.2 milestone shipped*
+*Last updated: 2026-03-21 after v1.3 milestone start*
