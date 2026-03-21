@@ -145,6 +145,89 @@ def test_send_stdin_fallback(monkeypatch):
 # --- search ---
 
 
+def test_inbox_with_as_flag(monkeypatch):
+    """inbox --as alice@example.com passes as_user to list_inbox."""
+    monkeypatch.setattr("sys.argv", ["claws-gmail", "--as", "alice@example.com", "inbox"])
+    mock_messages = [{"id": "1", "subject": "Hello"}]
+
+    with (
+        patch("claws_gmail.cli.list_inbox", return_value=mock_messages) as mock_list,
+        patch("claws_gmail.cli.result"),
+    ):
+        from claws_gmail.cli import main
+
+        main()
+        mock_list.assert_called_once_with(max_results=10, as_user="alice@example.com")
+
+
+def test_inbox_without_as_flag(monkeypatch):
+    """inbox without --as passes as_user=None to list_inbox."""
+    monkeypatch.setattr("sys.argv", ["claws-gmail", "inbox"])
+    mock_messages = [{"id": "1", "subject": "Hello"}]
+
+    with (
+        patch("claws_gmail.cli.list_inbox", return_value=mock_messages) as mock_list,
+        patch("claws_gmail.cli.result"),
+    ):
+        from claws_gmail.cli import main
+
+        main()
+        mock_list.assert_called_once_with(max_results=10, as_user=None)
+
+
+def test_read_with_as_flag(monkeypatch):
+    """read --as alice@example.com passes as_user to read_message."""
+    monkeypatch.setattr("sys.argv", ["claws-gmail", "--as", "alice@example.com", "read", "abc"])
+    msg = {"id": "abc", "body": "Hello"}
+
+    with (
+        patch("claws_gmail.cli.read_message", return_value=msg) as mock_read,
+        patch("claws_gmail.cli.result"),
+    ):
+        from claws_gmail.cli import main
+
+        main()
+        mock_read.assert_called_once_with("abc", as_user="alice@example.com")
+
+
+def test_send_with_as_flag(monkeypatch):
+    """send --as alice@example.com passes as_user to send_message."""
+    monkeypatch.setattr(
+        "sys.argv",
+        ["claws-gmail", "--as", "alice@example.com", "send", "--to", "bob@example.com", "--subject", "Hi", "--body", "Hello"],
+    )
+    resp = {"message_id": "m1", "thread_id": "t1"}
+
+    with (
+        patch("claws_gmail.cli.send_message", return_value=resp) as mock_send,
+        patch("claws_gmail.cli.result"),
+    ):
+        from claws_gmail.cli import main
+
+        main()
+        mock_send.assert_called_once_with(
+            to="bob@example.com", subject="Hi", body="Hello", cc=None, bcc=None, as_user="alice@example.com"
+        )
+
+
+def test_search_with_as_flag(monkeypatch):
+    """search --as alice@example.com passes as_user to search_messages."""
+    monkeypatch.setattr("sys.argv", ["claws-gmail", "--as", "alice@example.com", "search", "from:bob"])
+    msgs = [{"id": "1"}]
+
+    with (
+        patch("claws_gmail.cli.search_messages", return_value=msgs) as mock_search,
+        patch("claws_gmail.cli.result"),
+    ):
+        from claws_gmail.cli import main
+
+        main()
+        mock_search.assert_called_once_with(query="from:bob", max_results=10, as_user="alice@example.com")
+
+
+# --- search ---
+
+
 def test_search(monkeypatch):
     """search calls search_messages and wraps output in dict."""
     monkeypatch.setattr("sys.argv", ["claws-gmail", "search", "from:alice"])

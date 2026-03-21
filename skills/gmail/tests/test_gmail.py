@@ -321,6 +321,84 @@ def test_search_messages(mock_auth_client, mock_httpx, sample_message_metadata):
 # --- handle_gmail_error ---
 
 
+def test_get_access_token_with_subject(mock_auth_client):
+    """get_access_token(as_user=...) includes subject in auth server POST body."""
+    token = get_access_token(as_user="alice@example.com")
+    assert token == "test-token"
+    mock_auth_client.post_json.assert_called_once_with(
+        "/token",
+        {"scopes": ["https://www.googleapis.com/auth/gmail.modify"], "subject": "alice@example.com"},
+    )
+
+
+def test_get_access_token_without_subject(mock_auth_client):
+    """get_access_token() without as_user does NOT include subject in body."""
+    token = get_access_token()
+    assert token == "test-token"
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert "subject" not in body
+
+
+def test_list_inbox_passes_subject(mock_auth_client, mock_httpx):
+    """list_inbox(as_user=...) threads as_user through to get_access_token."""
+    response = MagicMock()
+    response.json.return_value = {"messages": []}
+    response.raise_for_status = MagicMock()
+    mock_httpx.get.return_value = response
+
+    list_inbox(as_user="test@example.com")
+
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert body["subject"] == "test@example.com"
+
+
+def test_read_message_passes_subject(mock_auth_client, mock_httpx, sample_message_full):
+    """read_message(msg_id, as_user=...) threads as_user through to get_access_token."""
+    response = MagicMock()
+    response.json.return_value = sample_message_full
+    response.raise_for_status = MagicMock()
+    mock_httpx.get.return_value = response
+
+    read_message("msg-002", as_user="test@example.com")
+
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert body["subject"] == "test@example.com"
+
+
+def test_send_message_passes_subject(mock_auth_client, mock_httpx):
+    """send_message(..., as_user=...) threads as_user through to get_access_token."""
+    response = MagicMock()
+    response.json.return_value = {"id": "sent-001", "threadId": "thread-sent-001"}
+    response.raise_for_status = MagicMock()
+    mock_httpx.post.return_value = response
+
+    send_message(to="bob@example.com", subject="Test", body="Hello", as_user="test@example.com")
+
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert body["subject"] == "test@example.com"
+
+
+def test_search_messages_passes_subject(mock_auth_client, mock_httpx):
+    """search_messages(query, as_user=...) threads as_user through to get_access_token."""
+    list_response = MagicMock()
+    list_response.json.return_value = {"messages": []}
+    list_response.raise_for_status = MagicMock()
+    mock_httpx.get.return_value = list_response
+
+    search_messages("from:alice", as_user="test@example.com")
+
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert body["subject"] == "test@example.com"
+
+
+# --- handle_gmail_error ---
+
+
 def test_handle_gmail_error_401(mock_httpx):
     """401 errors call crash() with auth failure message."""
     import httpx as real_httpx
