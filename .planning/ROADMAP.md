@@ -73,11 +73,11 @@ Plans:
   3. User can run `claws drive upload --name report.txt ./report.txt` to upload a file to Google Drive
   4. User can run `claws drive list --as user@domain.com` to browse another user's Drive
   5. `claws drive` appears in `claws` skill listing via entry-point discovery
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 09-01: TBD
-- [ ] 09-02: TBD
+- [ ] 09-01-PLAN.md — Drive API client module (drive.py) with list, download, upload, and tests
+- [ ] 09-02-PLAN.md — Drive CLI with subcommands, CLI tests, and workspace registration
 
 ## Progress
 
@@ -91,4 +91,4 @@ Plans:
 | 6. Calendar Read Operations | v1.2 | 2/2 | Complete | 2026-03-20 |
 | 7. Calendar Write Operations | v1.2 | 2/2 | Complete | 2026-03-20 |
 | 8. Multi-Agent Identity | v1.3 | 0/2 | Not started | - |
-| 9. Google Drive Skill | v1.3 | 0/? | Not started | - |
+| 9. Google Drive Skill | v1.3 | 0/2 | Not started | - |
