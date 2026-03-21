@@ -1,219 +1,196 @@
 # Stack Research
 
-**Domain:** Google auth server + Gmail skill additions to claws monorepo
-**Researched:** 2026-03-19
+**Domain:** Multi-agent identity + Google Drive skill for Python CLI monorepo
+**Researched:** 2026-03-21
 **Confidence:** HIGH
 
-## Recommended Stack (New Dependencies Only)
+## Executive Summary
 
-### Core Technologies
+This milestone requires zero new dependencies. The existing stack (httpx, argparse, ClawsClient, google-auth, FastAPI) already provides everything needed for both features. The multi-agent identity feature is a data-plumbing change (adding `subject` to token requests), and the Drive skill follows the exact same pattern as Gmail and Calendar: raw httpx calls to Google REST APIs with bearer tokens from the auth server.
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| google-auth | >=2.49 | Service account credentials, JWT signing, domain-wide delegation | Official Google library. Provides `Credentials.from_service_account_file()`, `.with_subject()`, `.with_scopes()` -- the exact primitives needed for domain-wide delegation. Actively maintained (2.49.1 released 2026-03-12). No alternative exists for this task. |
-| requests | >=2.32 | HTTP transport for google-auth token refresh | `google.auth.transport.requests.Request` is the standard transport for exchanging JWTs for access tokens at Google's token endpoint. google-auth has built-in transports for `requests` and `aiohttp` but NOT for httpx. Only needed in the auth server on the host -- never in the container. |
+## Recommended Stack Changes
 
-### Reused from Existing Stack (No Changes)
+### New Dependencies: None
 
-| Technology | Purpose in v1.1 |
-|------------|-----------------|
-| FastAPI >=0.135 | Auth server framework (same pattern as whisper-server) |
-| uvicorn >=0.42 | ASGI server for auth server |
-| httpx >=0.28 | Auth server calls Gmail REST API; Gmail skill calls auth server via ClawsClient |
-| claws-common | Gmail skill uses ClawsClient and output helpers (unchanged) |
-| argparse | Gmail skill CLI argument parsing |
-| hatchling | Build backend for both new packages |
-| pytest + pytest-httpx | Testing both new packages |
-| ruff | Linting both new packages |
+No new packages are needed. Here is why:
 
-## Key Architecture Decision: Direct REST vs google-api-python-client
+| Capability | Existing Solution | Why Sufficient |
+|------------|-------------------|----------------|
+| Drive list/download/upload | httpx >=0.28 (already in claws-common) | Drive REST API v3 is plain HTTP. Gmail and Calendar already use raw httpx for Google APIs. |
+| Auth token with per-request subject | google-auth >=2.49 (already in auth server) | `Credentials.with_subject()` is a built-in method on service account credentials. |
+| CLI argument parsing | argparse (stdlib) | `--as` flag is one `add_argument` call per skill. |
+| File upload multipart | httpx >=0.28 (already in claws-common) | Manual multipart/related body construction is ~10 lines. |
+| File download streaming | httpx >=0.28 (already in claws-common) | `httpx.stream()` handles binary downloads. |
 
-**Decision: Use direct Gmail REST API via httpx. Do NOT use google-api-python-client.**
+### Existing Stack (Unchanged)
 
-Rationale:
-- The Gmail REST API is simple and well-documented: `GET /gmail/v1/users/{userId}/messages` (list/search), `GET .../messages/{id}` (read), `POST .../messages/send` (send)
-- The auth server already holds credentials and produces access tokens -- it makes Gmail API calls directly with httpx and a bearer token header
-- `google-api-python-client` pulls in `uritemplate`, `google-api-core`, `google-auth-httplib2`, `httplib2`, and `protobuf` -- heavy dependencies for what amounts to adding an `Authorization` header to REST calls
-- The existing codebase uses httpx everywhere; adding httplib2 via the Google client would introduce a second HTTP stack
-- The Gmail skill in the container stays thin (just calls the auth server via ClawsClient) -- no Google libraries needed in the container at all
+| Technology | Version | Package | Role in v1.3 |
+|------------|---------|---------|--------------|
+| httpx | >=0.28 | claws-common | HTTP client for auth server + Drive REST API |
+| FastAPI | >=0.135 | google-auth-server | Auth server framework (add `subject` to TokenRequest model) |
+| google-auth | >=2.49 | google-auth-server | `with_subject()` for per-agent delegation |
+| pydantic | (via FastAPI) | google-auth-server | TokenRequest model gets optional `subject` field |
+| argparse | stdlib | all skills | `--as` flag added to gmail, calendar, drive CLIs |
+| hatchling | build-system | all packages | No change |
+| pytest + pytest-httpx | dev deps | all packages | No change |
+| ruff | dev dep | all packages | No change |
 
-## Key Architecture Decision: Auth Server as API Proxy
+## Feature-Specific Stack Details
 
-**Decision: The auth server makes Gmail API calls on behalf of the skill. It is NOT a token vending machine.**
+### Multi-Agent Identity (--as flag)
 
-Rationale:
-- Keeps all Google credentials, token management, and API complexity on the host
-- The skill in the container never touches Google auth, tokens, or Gmail API endpoints
-- Consistent with the whisper-server pattern: skill sends a request, server does the heavy lifting, returns clean JSON
-- Token refresh, caching, and error handling are centralized in one place
-- Adding Calendar later means adding endpoints to the same server, not shipping Google libraries to the container
+**Auth server change**: Add optional `subject: str | None = None` to the `TokenRequest` Pydantic model. When present, use `base_creds.with_subject(subject)` before `with_scopes()`. When absent, fall back to `GOOGLE_DELEGATED_USER` (current behavior).
 
-## Token Flow
-
-```
-Container (Gmail skill)              Host (google-auth server :8301)        Google APIs
-+-------------------+               +---------------------------+          +------------------+
-| claws gmail read  |--GET /gmail-->| 1. Load service account   |          |                  |
-|                   |   inbox       |    key from disk           |          |                  |
-| (ClawsClient,     |               | 2. .with_subject(user)    |          |                  |
-|  no Google libs)  |               | 3. .with_scopes([gmail])  |          |                  |
-|                   |               | 4. credentials.refresh()  |--JWT---->| Token endpoint   |
-|                   |               |    (via requests transport)|<-token---|                  |
-|                   |               | 5. httpx GET gmail API    |--------->| Gmail REST API   |
-|                   |<--JSON result-|    with bearer token       |<-JSON---|                  |
-+-------------------+               +---------------------------+          +------------------+
+**Key API** (google-auth library, HIGH confidence):
+```python
+# google.oauth2.service_account.Credentials
+creds = base_creds.with_subject("agent@domain.com")  # Returns NEW Credentials instance
+creds = creds.with_scopes(["https://..."])
+creds.refresh(transport_request)
 ```
 
-## Installation
+`with_subject()` returns a new `Credentials` instance -- it does not mutate. This means `base_creds` stays untouched and the cache key must include the subject.
 
-### Auth Server (servers/google-auth/)
+**Skill-side change**: Each Google skill's `get_access_token()` function adds `subject` to the POST body when `--as` is provided. The flow is: CLI `--as` arg -> function parameter -> POST `/token` body -> auth server `with_subject()`.
+
+**Cache key change**: Currently `frozenset(scopes)`. Must become `(subject_or_default, frozenset(scopes))` tuple to avoid returning Agent A's token to Agent B.
+
+### Google Drive Skill
+
+**API**: Google Drive REST API v3. No client library needed -- raw httpx with bearer token, identical pattern to Gmail and Calendar.
+
+**Base URL**: `https://www.googleapis.com/drive/v3`
+
+**Scope**: `https://www.googleapis.com/auth/drive` -- the full read/write scope. Using `drive.file` would limit access to files created by the app, which is too restrictive for a general-purpose Drive skill. The service account with domain-wide delegation already constrains access per-user via the subject field.
+
+**Endpoints needed**:
+
+| Operation | Method | URL | Notes |
+|-----------|--------|-----|-------|
+| List files | GET | `/drive/v3/files` | `q` param for search, `pageSize`, `fields` for sparse response |
+| Download file | GET | `/drive/v3/files/{id}?alt=media` | Returns raw bytes. For Google Docs: use `/files/{id}/export?mimeType=...` |
+| Upload file | POST | `/upload/drive/v3/files?uploadType=multipart` | multipart/related: JSON metadata + file bytes |
+
+**Download output**: Write bytes to stdout or a specified `--output` file path. The agent can pipe stdout to a file. For Google Workspace documents (Docs, Sheets, Slides), the `export` endpoint converts to a requested format (PDF, DOCX, etc.).
+
+**Upload implementation**: httpx does not have built-in `multipart/related` support (its `files=` parameter produces `multipart/form-data`). Two options:
+
+1. **Manual multipart/related body** (~10 lines): Construct boundary, JSON metadata part, file bytes part. Simple and no dependencies.
+2. **Two-step upload**: POST metadata to create file, then PATCH with `uploadType=media` to add content. More HTTP calls but avoids manual multipart construction.
+
+Recommend option 1 (manual construction) because it matches how Google's own docs show the format, and it is a single HTTP call.
+
+### New Package: claws-drive
 
 ```toml
+# skills/drive/pyproject.toml
 [project]
-name = "google-auth-server"
+name = "claws-drive"
 version = "0.1.0"
-description = "Google API proxy server with service account domain-wide delegation"
-requires-python = ">=3.12"
-dependencies = [
-    "fastapi>=0.135",
-    "uvicorn>=0.42",
-    "google-auth>=2.49",
-    "requests>=2.32",
-    "httpx>=0.28",
-]
-
-[project.scripts]
-google-auth-server = "google_auth_server.app:main"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-```
-
-### Gmail Skill (skills/gmail/)
-
-```toml
-[project]
-name = "claws-gmail"
-version = "0.1.0"
-description = "Gmail skill for Lobster Claws"
+description = "Google Drive skill for Lobster Claws"
 requires-python = ">=3.12"
 dependencies = ["claws-common"]
 
-[project.scripts]
-claws-gmail = "claws_gmail.cli:main"
-
-[project.entry-points."claws.skills"]
-gmail = "claws_gmail.cli:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[project.entry-points."claws.skills"]
+drive = "claws_drive.cli:main"
 
 [tool.uv.sources]
 claws-common = { workspace = true }
 ```
 
-### Root pyproject.toml additions
+Dependencies: only `claws-common` (which brings httpx). Same as Gmail and Calendar.
 
-```toml
-[dependency-groups]
-dev = [
-    # ... existing entries ...
-    "google-auth-server",
-    "claws-gmail",
-]
+## Token Vending vs API Proxy Architecture
 
-[tool.uv.sources]
-# ... existing entries ...
-google-auth-server = { workspace = true }
-claws-gmail = { workspace = true }
-```
+**Important context**: The v1.1 research recommended the auth server as an API proxy (making Gmail API calls on behalf of skills). However, the actual implementation chose **token vending** instead -- the auth server mints tokens via `POST /token`, and skills call Google APIs directly with those tokens using raw httpx.
 
-## Why requests Is Acceptable Here
+This is the correct pattern for Drive too. The Drive skill will:
+1. Call `POST /token` on auth server (via ClawsClient) with Drive scope and optional subject
+2. Use the returned bearer token to call Drive REST API directly (via raw httpx)
 
-Adding `requests` alongside `httpx` seems like a violation of the "one HTTP library" principle. It is not, because:
-
-1. `requests` is used exclusively as a transport adapter for `google-auth`'s `credentials.refresh()` method. It is never used directly for making API calls.
-2. `google-auth` only ships transports for `requests` and `aiohttp`. There is no httpx transport.
-3. This dependency is confined to the auth server on the host. It never enters the container.
-4. The alternative (writing a custom httpx transport for google-auth) adds complexity and maintenance burden for no user-facing benefit.
+This matches Gmail (`gmail.py` calls `get_access_token()` then uses `_gmail_get`/`_gmail_post`) and Calendar (same pattern).
 
 ## Alternatives Considered
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| google-auth + httpx (direct REST) | google-api-python-client | If you need complex Google API features like batch requests, resumable media upload, or discovery-based endpoint generation. Gmail read/send/search does not need these. |
-| requests (for google-auth transport) | aiohttp (google-auth has async transport) | If the auth server needs high-concurrency token refresh. For a single-user agent making sequential requests, sync transport is simpler. |
-| Single auth server for all Google APIs | Separate servers per Google service | Never. The auth server holds one service account key and serves any Google API. Adding Calendar later means adding endpoints, not a new server. |
-| Auth server as API proxy | Auth server as token vending machine | Never for this project. Token vending leaks complexity into the container (token expiry handling, direct Google API calls, Gmail-specific error handling). |
+| Recommended | Alternative | Why Not |
+|-------------|-------------|---------|
+| Raw httpx for Drive API | google-api-python-client | Gmail and Calendar already use raw httpx. Adding google-api-python-client would introduce ~6 transitive deps (httplib2, protobuf, uritemplate, google-api-core, google-auth-httplib2, googleapis-common-protos). Contradicts "thin CLI" principle. |
+| `drive` full scope | `drive.file` narrow scope | `drive.file` only accesses files created by the app or explicitly shared. A general-purpose Drive skill needs to list/download any file the delegated user has access to. |
+| `drive` full scope | `drive.readonly` + separate write scope | One scope is simpler. The service account delegation already constrains per-user access. |
+| Manual multipart/related | requests-toolbelt | Extra dependency for one upload endpoint. The format is trivial to construct manually. |
+| Write bytes to stdout/file | Return base64 in JSON | Binary files can be large. Streaming to stdout or a file path is the Unix way and avoids 33% base64 bloat. |
+| Optional `subject` field (default to env var) | Required `subject` field | Breaking change. Existing Gmail/Calendar calls do not pass subject. Default-to-env-var preserves backward compatibility. |
 
-## What NOT to Use
+## What NOT to Add
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| google-api-python-client | Pulls in httplib2, protobuf, uritemplate, google-api-core. Adds ~15MB+ of dependencies for 3 REST endpoints. Creates a second HTTP stack alongside httpx. | Direct httpx calls to Gmail REST API with bearer token from google-auth credentials. |
-| google-auth-httplib2 | Only needed if using google-api-python-client. httplib2 is a legacy HTTP library. | httpx for outbound API calls. |
-| google-auth-oauthlib | For interactive OAuth consent flows. Service accounts with domain-wide delegation do not use OAuth consent. | google-auth with `service_account.Credentials` directly. |
-| oauth2client | Deprecated since 2017. Replaced by google-auth. | google-auth. |
-| simplegmail | Third-party wrapper with heavy dependencies, assumes interactive OAuth user flow. | Direct REST calls via httpx. |
-| Any Google library in the container | Container should stay thin. All Google complexity belongs on the host. | ClawsClient calling the auth server. |
+| google-api-python-client | Heavy (~6 transitive deps), overkill for 3 HTTP endpoints. Contradicts existing pattern of raw httpx. | Raw httpx + bearer token |
+| google-auth-httplib2 | Only needed by google-api-python-client. httpx is the HTTP client. | httpx |
+| requests (in skills) | Already have httpx. `requests` is only in auth server for google-auth transport. | httpx for all outbound API calls in skills |
+| pydrive2 or gdown | Third-party Drive wrappers that assume OAuth user flow. Not compatible with service account delegation. | Direct REST calls |
+| Any Google library in container | Container stays thin. All Google auth complexity is on the host. | ClawsClient + raw httpx with bearer token |
 
-## Port Assignment
+## Integration Points
 
-| Server | Port | Status |
-|--------|------|--------|
-| whisper-server | 8300 | Existing |
-| google-auth-server | 8301 | New -- next in 8300+ range |
+### Auth Server Token Cache Key Update
 
-## Gmail API Scopes Needed
+Current cache key: `frozenset(scopes)`
+Required cache key: `(subject or default_subject, frozenset(scopes))`
 
-| Scope | Purpose |
-|-------|---------|
-| `https://www.googleapis.com/auth/gmail.readonly` | Read inbox, search messages |
-| `https://www.googleapis.com/auth/gmail.send` | Send emails |
+This is the most critical integration change. Without it, Agent A receives Agent B's cached token when requesting the same scopes. The fix is small (change the cache key type) but forgetting it is a security issue.
 
-These scopes must be authorized for the service account's client ID in the Google Workspace Admin Console under domain-wide delegation settings.
+### Google Workspace Admin Console
 
-## Gmail REST API Endpoints Used
+The `https://www.googleapis.com/auth/drive` scope must be added to the service account's domain-wide delegation authorization in Google Workspace Admin > Security > API Controls > Domain-wide Delegation. Without this, token minting for Drive will fail with a 403.
 
-| Operation | Method | Endpoint |
-|-----------|--------|----------|
-| List/search messages | GET | `https://gmail.googleapis.com/gmail/v1/users/{userId}/messages?q={query}` |
-| Get message | GET | `https://gmail.googleapis.com/gmail/v1/users/{userId}/messages/{id}` |
-| Send message | POST | `https://gmail.googleapis.com/gmail/v1/users/{userId}/messages/send` |
+### ClawsClient -- No Changes Needed
 
-The `userId` is the delegated user's email address (the `subject` in service account credentials). Can also use `me` when the access token is scoped to a specific user.
+The Drive skill calls the auth server via `ClawsClient.post_json()` (same as Gmail/Calendar) and calls Drive API via raw httpx (same as Gmail/Calendar). No new methods needed on ClawsClient.
+
+For downloads, the skill uses `httpx.stream()` directly (not ClawsClient) since ClawsClient.get() returns `.json()` and downloads are binary. This is consistent with how Gmail/Calendar already bypass ClawsClient for Google API calls.
+
+### Workspace Root pyproject.toml Update
+
+Add `"claws-drive"` to `[dependency-groups] dev` and `claws-drive = { workspace = true }` to `[tool.uv.sources]`.
+
+Test paths already covered by `"skills"` in `testpaths`.
 
 ## Version Compatibility
 
-| Package | Compatible With | Notes |
-|---------|-----------------|-------|
-| google-auth >=2.49 | Python >=3.10 | Python 3.8/3.9 EOL. Project requires >=3.12, well within support. |
-| google-auth >=2.49 | requests >=2.20 | google-auth's requests transport has minimal version requirements. |
-| requests >=2.32 | Python >=3.8 | No compatibility concerns with Python 3.12. |
-| FastAPI >=0.135 | uvicorn >=0.42 | Same versions already used by whisper-server. |
-| httpx >=0.28 | Python >=3.12 | Already in use via claws-common. |
+| Package | Current Pin | v1.3 Compatible | Notes |
+|---------|-------------|-----------------|-------|
+| httpx | >=0.28 | Yes | `httpx.stream()` available since 0.23. Multipart support stable. |
+| google-auth | >=2.49 | Yes | `with_subject()` available since 2.x. Stable, unchanged API. |
+| FastAPI | >=0.135 | Yes | Pydantic model update (optional field) is straightforward. |
+| pydantic | (via FastAPI) | Yes | `str | None = None` default works in all recent pydantic v2 versions. |
+| Python | >=3.12 | Yes | All syntax used (union types, f-strings, etc.) works. |
 
-## Service Account Setup (Prerequisites, Not Code)
+## Drive API Scope Authorization
 
-The auth server needs a service account JSON key file on the host:
-1. Google Cloud project with Gmail API enabled
-2. Service account created with domain-wide delegation enabled in GCP console
-3. Google Workspace Admin Console: authorize service account client ID for Gmail scopes listed above
-4. Key file downloaded to host (e.g., `~/.config/lobster-claws/service-account.json`)
-5. Path to key file configured via environment variable (e.g., `GOOGLE_SERVICE_ACCOUNT_KEY`)
+The service account's domain-wide delegation must be updated in Google Workspace Admin to include the Drive scope. Current authorized scopes (from v1.1/v1.2):
+
+| Scope | Added In |
+|-------|----------|
+| `https://www.googleapis.com/auth/gmail.modify` | v1.1 |
+| `https://www.googleapis.com/auth/calendar` | v1.2 |
+| `https://www.googleapis.com/auth/drive` | v1.3 (NEW) |
+
+This is a manual admin step, not a code change. Document in setup instructions.
 
 ## Sources
 
-- [google-auth PyPI](https://pypi.org/project/google-auth/) -- version 2.49.1, released 2026-03-12 (HIGH confidence)
-- [google.oauth2.service_account docs](https://googleapis.dev/python/google-auth/latest/reference/google.oauth2.service_account.html) -- Credentials API, with_subject(), with_scopes() (HIGH confidence)
-- [Gmail REST API reference](https://developers.google.com/gmail/api/reference/rest) -- endpoint URLs for messages list/get/send (HIGH confidence)
-- [Google OAuth2 server-to-server guide](https://developers.google.com/identity/protocols/oauth2/service-account) -- domain-wide delegation flow (HIGH confidence)
-- [google-auth user guide](https://googleapis.dev/python/google-auth/latest/user-guide.html) -- transport requirements for credential refresh (HIGH confidence)
-- [google-auth transport.requests docs](https://google-auth.readthedocs.io/en/latest/reference/google.auth.transport.requests.html) -- Request class for token refresh (HIGH confidence)
-- [google-auth GitHub issue #1785](https://github.com/googleapis/google-auth-library-python/issues/1785) -- confirms no ADC shortcut for domain-wide delegation; explicit credential management required (HIGH confidence)
+- [Google Drive API v3 REST Reference](https://developers.google.com/workspace/drive/api/reference/rest/v3) -- endpoint URLs, methods, response schemas (HIGH confidence)
+- [Google Drive files.list](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list) -- query parameters, pagination, required scopes (HIGH confidence)
+- [Google Drive Upload Guide](https://developers.google.com/drive/api/guides/manage-uploads) -- upload types (simple, multipart, resumable), size limits (HIGH confidence)
+- [Google Drive files.get with alt=media](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/get) -- download mechanism, export for Google Docs (HIGH confidence)
+- [Google Drive API Scopes](https://developers.google.com/drive/api/guides/api-specific-auth) -- scope options and sensitivity levels (HIGH confidence)
+- Existing codebase: `gmail.py`, `calendar/calendar.py`, `app.py`, `client.py` -- established patterns for token vending + raw httpx (HIGH confidence, direct code review)
 
 ---
-*Stack research for: Google auth server + Gmail skill*
-*Researched: 2026-03-19*
+*Stack research for: v1.3 Multi-Agent Identity + Google Drive*
+*Researched: 2026-03-21*

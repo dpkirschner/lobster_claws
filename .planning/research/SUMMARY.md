@@ -1,158 +1,160 @@
 # Project Research Summary
 
-**Project:** Lobster Claws v1.1 — Google Auth Server + Gmail Skill
-**Domain:** Google Workspace API integration into a Docker-to-host CLI agent tooling monorepo
-**Researched:** 2026-03-19
+**Project:** Lobster Claws v1.3 — Multi-Agent Identity + Google Drive Skill
+**Domain:** Python CLI monorepo, Google Workspace API integration, Docker container skills
+**Researched:** 2026-03-21
 **Confidence:** HIGH
 
 ## Executive Summary
 
-This v1.1 milestone adds Gmail capability to the Lobster Claws agent by introducing a Google auth server on the host and a thin Gmail CLI skill in the container. The core architectural pattern follows the established v1.0 approach — the host owns sensitive resources, the container runs thin logic — with one deliberate evolution: the auth server acts as a token vending machine rather than a full API proxy. The Gmail skill gets a short-lived access token from the host, then calls the Gmail REST API directly over HTTPS. This keeps the service account JSON key permanently on the host while avoiding the overhead of proxying all Gmail payloads through a host intermediary.
+The v1.3 milestone adds two tightly coupled capabilities: per-agent Google Workspace identity (the `--as` flag) and a new Google Drive skill. Both features follow patterns already established by the Gmail and Calendar skills, meaning this milestone is primarily a targeted extension of proven architecture rather than greenfield development. Zero new dependencies are required. The recommended approach is to change the auth server first (making `subject` optional in `POST /token`, fixing the cache key), then update existing skills (Gmail, Calendar) to thread the flag, and finally build the Drive skill with the identity mechanism already proven.
 
-The recommended stack is minimal: `google-auth` (>=2.49) and `requests` are the only new dependencies, both confined to the host-side auth server. The Gmail skill in the container depends only on `claws-common`, the same as every existing skill. Direct Gmail REST API calls via `httpx` replace the heavier `google-api-python-client` library, which would introduce a parallel HTTP stack and ~15MB of transitive dependencies for what amounts to three stable REST endpoints. All four research files converge on the same conclusion: keep the container thin, keep Google complexity on the host, reuse established patterns.
+The central risk is a silent security bug: if the token cache key is not updated to include the `subject` field, agents requesting the same scopes will receive each other's access tokens. This produces no errors — it silently routes Agent A to Agent B's data. This fix must be atomic with the auth server subject support change and must never ship separately. A secondary risk is that `base_creds` in the auth server currently bakes the delegation subject in at startup; this must be refactored to store subject-free base credentials and call `with_subject()` per request.
 
-The primary risks are configuration-level, not code-level. Domain-wide delegation requires two separate admin console steps (GCP Console and Google Workspace Admin Console), and missing either one produces opaque `401`/`403` errors that look like code bugs. The auth server must validate end-to-end delegation at startup — not just confirm the key file loads — and must bind to `127.0.0.1` rather than `0.0.0.0` to prevent any device on the local network from minting domain credentials. All other pitfalls (token caching, base64url encoding, subject parameter) are well-understood and straightforward to test against.
+The Drive skill introduces two HTTP patterns not present in Gmail or Calendar: binary file downloads (as opposed to JSON responses) and `multipart/related` upload bodies (as opposed to JSON POST bodies). Google Workspace documents (Docs, Sheets, Slides) also require a separate `files.export` endpoint rather than `files.get?alt=media`. These differences are well-documented and testable, making Phase 3 MEDIUM risk rather than HIGH — the patterns are new to this codebase but not novel in the broader ecosystem.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The auth server adds `google-auth>=2.49` (JWT signing, credential management, token exchange) and `requests>=2.32` (used exclusively as a transport adapter for `google-auth`'s credential refresh — not for direct HTTP calls). The `requests` addition alongside `httpx` is intentional and bounded: `google-auth` ships transports only for `requests` and `aiohttp`; writing a custom `httpx` transport adds complexity with no user-facing benefit. All other infrastructure — FastAPI, uvicorn, httpx, hatchling, pytest, ruff — is reused from v1.0 unchanged.
+No new packages are needed for v1.3. The existing stack — httpx, FastAPI, google-auth, pydantic, argparse, hatchling — provides everything required. The auth server already has `google-auth >= 2.49` which includes `Credentials.with_subject()`. Skills already use raw httpx for Google API calls. Drive's REST API v3 is plain HTTP, consistent with the Gmail and Calendar approach.
+
+The one new artifact is a `claws-drive` package (`skills/drive/`) with a single dependency on `claws-common`. It registers via the `claws.skills` entry point group, exactly as other skills do.
 
 **Core technologies:**
-- `google-auth>=2.49`: JWT signing + Google token endpoint exchange + `service_account.Credentials` management — the only correct library for this; no alternative for domain-wide delegation
-- `requests>=2.32`: Transport adapter for `google-auth` credential refresh — confined to host auth server, never in container
-- `FastAPI + uvicorn`: Auth server framework — same as whisper-server, no new patterns required
-- `httpx`: Gmail REST API calls from skill — already present via `claws-common`
-- `claws-common`: Gmail skill uses `ClawsClient` and output helpers — unchanged, no new methods needed
-
-**What not to use:** `google-api-python-client` (heavy transitive dependencies, second HTTP stack), `google-auth-oauthlib` (OAuth consent flow, not needed for service accounts), `oauth2client` (deprecated 2017), any Google library in the container.
+- httpx >= 0.28: HTTP client for auth server calls and Google API calls — already present in claws-common
+- google-auth >= 2.49: `with_subject()` for per-request delegation — already on auth server host
+- FastAPI + pydantic: Auth server framework; `TokenRequest` model gets optional `subject: str | None = None`
+- argparse (stdlib): `--as` flag added to parent parser in Gmail, Calendar, and Drive CLIs
+- hatchling: Build backend for new `claws-drive` package — no change from other skills
 
 ### Expected Features
 
-**Must have (v1.1 table stakes):**
-- Auth server: service account credentials + domain-wide delegation with `subject` impersonation
-- Auth server: in-memory token caching keyed by `(subject, frozenset(scopes))` with 3500s TTL
-- Auth server: `/token` endpoint accepting `scopes` query param; `/health` endpoint
-- Auth server: multi-scope support via request parameter (enables Calendar/Drive later at zero server cost)
-- Auth server: launchd plist for auto-start on reboot
-- Gmail skill: `claws gmail read <id>`, `search <query>`, `send --to --subject --body` subcommands
-- Gmail skill: structured JSON output (MIME payload flattening — From, To, Subject, Date, plain-text body)
+**Must have (table stakes — v1.3 launch):**
+- Auth server `POST /token` accepts optional `subject` field and defaults to `GOOGLE_DELEGATED_USER` — backward compatible, all existing calls work unchanged
+- Token cache keyed by `(subject, frozenset(scopes))` — prevents cross-agent token collision
+- `--as user@domain.com` on Gmail (all subcommands) — threads subject through to token request
+- `--as user@domain.com` on Calendar (all subcommands) — identical pattern to Gmail
+- `claws drive list` with optional `--query` and `--max` — GET /drive/v3/files
+- `claws drive download <fileId>` with transparent export for Google Workspace documents
+- `claws drive upload --name <name> <filepath>` — multipart/related upload
+- `--as user@domain.com` on Drive (all subcommands)
+- Structured JSON output, `handle_drive_error()`, and full test suite for Drive
 
-**Should have (v1.1.x patches after validation):**
-- Thread view (`claws gmail thread <id>`)
-- Attachment metadata in message output (filename, mimeType, size)
-- Label filtering on list/search
-- Reply-to thread support (In-Reply-To + References headers)
-- Mark as read/unread
+**Should have (add when agent usage patterns emerge — v1.3.x):**
+- `--folder <folderId>` filter on `drive list` — folder-scoped browsing
+- `--mime-type` filter on `drive list` — type-specific searches
+- Upload to specific folder via `--folder` — organized output
+- `claws drive info <fileId>` — metadata without downloading content
 
 **Defer (v2+):**
-- Google Calendar skill (reuses auth server, new scopes)
-- Google Drive skill
-- Attachment download (requires consuming skill to process)
-- Batch operations
-- Trash/archive (defer until agent trust model is established)
-- Push notifications (requires public webhook URL — not feasible from Mac mini behind NAT)
+- Shared drive support (`--shared` flag)
+- Resumable upload (only needed for files > 5 MB)
+- Move/copy/rename operations
+- Folder creation
+- Download format selection (`--format`)
 
 ### Architecture Approach
 
-The architecture is a deliberate evolution of v1.0's "thin CLI -> host server -> result" pattern into "thin CLI -> host auth server for token -> external API -> result". The host still owns the sensitive credential (service account JSON key); the container still has no secrets. The auth server on port 8301 is the sole holder of the key and mints short-lived (1-hour) access tokens on demand. The Gmail skill makes two types of HTTP calls: `ClawsClient` to the auth server (same host-server pattern as whisper), then raw `httpx` to `gmail.googleapis.com` with a bearer token. A `gmail.py` module within `claws_gmail` isolates Gmail API logic from CLI argument parsing in `cli.py`.
+The architecture is a strict two-tier pattern: thin CLIs in Docker containers call the host-side auth server for tokens (via `ClawsClient`), then call Google APIs directly using raw httpx with bearer tokens. The identity change extends this pattern by adding a `subject` dimension to the token request without changing any transport layer. The Drive skill introduces the same two-tier separation as Gmail/Calendar, with two implementation differences: binary response handling for downloads and manual `multipart/related` body construction for uploads.
 
 **Major components:**
-1. `google-auth-server` (NEW, `servers/google-auth/`, port 8301) — holds service account key, vends short-lived access tokens via domain-wide delegation, caches tokens in memory
-2. `claws-gmail` (NEW, `skills/gmail/`) — thin CLI skill; gets token via `ClawsClient`, calls Gmail REST API directly with `httpx`, formats output with `result()`/`fail()`/`crash()`
-3. `launchd/com.lobsterclaws.google-auth.plist` (NEW) — auto-starts auth server on reboot, same pattern as whisper plist
-4. `claws-common` (UNCHANGED) — existing `ClawsClient.get()` is sufficient for the `/token` endpoint call; no new methods needed
-5. `claws-cli` (UNCHANGED) — discovers gmail skill automatically via entry points
+1. **google-auth-server** (modified) — accepts optional `subject` in `TokenRequest`, stores subject-free `base_creds`, mints per-request delegated credentials via `with_subject().with_scopes()`, caches by `(subject, scopes)` tuple
+2. **claws-gmail + claws-calendar** (modified) — `get_access_token(subject)` threads the `--as` CLI arg through every public API function to the token POST body
+3. **claws-drive** (new) — `drive.py` API module + `cli.py` with list/download/upload subcommands, `--as` built in from the start, full test suite
 
 ### Critical Pitfalls
 
-1. **Missing `subject` in delegated credentials** — Service account credentials without `.with_subject()` return `400 Precondition check failed` or `403 Forbidden` from Gmail with zero diagnostic context. The `/token` endpoint must require a `subject` parameter and return `400` with a clear message if omitted. Never default to the service account email.
+1. **Token cache key missing subject** — If the cache key remains `frozenset(scopes)`, two agents requesting the same scope receive the same token. Agent A silently reads Agent B's data. Fix: change to `(frozenset(scopes), effective_subject)` in the same commit that adds subject support. Never ship one without the other.
 
-2. **Two-console delegation setup** — Domain-wide delegation requires configuration in both GCP Console (enable delegation on the service account) AND Google Workspace Admin Console (authorize the service account client ID with specific scope strings). Missing the Workspace Admin Console step produces `401`/`403` errors that look like code bugs. The auth server must make a real Gmail API call at startup to validate end-to-end delegation, logging the exact Admin Console URL if it fails.
+2. **`base_creds` has subject baked in at startup** — The current auth server calls `from_service_account_file(key_path, subject=subject)` at startup. With multi-subject support, `with_scopes()` alone preserves the startup subject; you must also call `with_subject()` per request. Fix: store credentials without subject at startup; chain `with_subject(effective_subject).with_scopes(scopes)` per request.
 
-3. **Service account key leaking into containers or git** — The key grants permanent domain-wide delegation to all users' email, calendar, and drive. It must live only on the host filesystem outside the repo (`~/.config/lobster-claws/service-account.json`). Add `*service-account*` and `*credentials*.json` to `.gitignore` immediately. The entire architectural purpose of the auth server is that containers never touch the key.
+3. **`--as` flag parsed but not threaded to API modules** — argparse receives `--as` in `cli.py` but `get_access_token()` in `gmail.py`/`calendar.py` takes no arguments. Eight+ function signatures need `subject: str | None = None` added. Fix: start with `get_access_token()`, then each public API function; verify with a test that asserts the mock auth server receives the `subject` field.
 
-4. **Auth server bound to `0.0.0.0`** — The whisper-server binds to all interfaces; copying this pattern for the auth server is wrong because the auth server mints credentials. Bind to `127.0.0.1` only. On Docker Desktop for Mac, `host.docker.internal` resolves to the host loopback, so container access still works. This prevents any device on the local network from requesting domain credentials.
+4. **Drive download vs export — two separate code paths** — `files.get?alt=media` works for binary files but returns an error for Google Workspace documents (Docs, Sheets, Slides). Must detect `application/vnd.google-apps.*` MIME types and route to `files.export`. Fix: fetch metadata first, branch on MIME type, handle transparently without requiring the caller to know the file type.
 
-5. **base64url vs standard base64 for Gmail send** — `base64.b64encode()` produces standard base64 (uses `+` and `/`, adds `=` padding); Gmail's `messages.send` requires base64url (`-_` characters, no padding). Use `base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")`. Write and test this helper before any send logic.
+5. **Drive upload requires `multipart/related`, not `multipart/form-data`** — Drive's upload API requires a manually constructed two-part body: JSON metadata first, file bytes second, with `Content-Type: multipart/related; boundary=...`. Fix: use raw httpx directly for uploads, matching the pattern in gmail.py/calendar.py for external Google API calls.
 
 ## Implications for Roadmap
 
-The dependency graph drives a clear three-phase structure. The auth server is the prerequisite for all Gmail work. The Gmail skill depends on the auth server being independently testable. Security decisions (bind address, key file location, `.gitignore`) must be made before any code exists, not retrofitted.
+Based on research, the dependency graph is clear and dictates a strict build order. Nothing in Phase 2 or Phase 3 can work without Phase 1.
 
-### Phase 1: Google Auth Server
+### Phase 1: Auth Server Identity + Existing Skill Updates
 
-**Rationale:** The auth server is the prerequisite for all Gmail work. It holds the credential, vends tokens, and must be independently testable before the Gmail skill can be built. Security decisions (bind address, key file location, `.gitignore`) must be made before any code exists. Token caching is core server logic, not an optimization to add later.
-**Delivers:** Working `/health` and `/token` endpoints on port 8301 with real domain-wide delegation; in-memory token caching; startup validation of end-to-end delegation; launchd plist for auto-start; multi-scope support via request parameter.
-**Addresses:** All auth server table-stakes features (token serving, delegation, caching, health endpoint, multi-scope support, launchd plist).
-**Avoids:** Key file leak (key storage and `.gitignore` established first), `0.0.0.0` bind address, missing subject validation, stale or missing token caching, two-console delegation confusion (startup health check surfaces it immediately with actionable error).
+**Rationale:** Every downstream feature depends on the auth server accepting a per-request `subject`. This phase also fixes the cache key security bug, which must be atomic with the subject feature. Updating Gmail and Calendar to use `--as` validates the end-to-end flow before new code is written.
 
-### Phase 2: Gmail Skill
+**Delivers:** Auth server with per-agent identity; Gmail and Calendar with `--as` flag; all existing tests continue to pass.
 
-**Rationale:** Depends on Phase 1's auth server being complete and testable. The skill is the agent-facing interface and cannot be meaningfully built or tested without a working token source. MIME payload flattening (structured output) must be built as a cross-cutting concern from the start — it is required by both list (header extraction) and read (body extraction) operations.
-**Delivers:** `claws gmail read <id>`, `claws gmail search <query>`, `claws gmail send --to --subject --body` subcommands with structured JSON output; base64url encoding helper; Gmail API error mapping (401, 404, 429) to user-facing messages.
-**Uses:** `claws-common` (ClawsClient, output helpers), `httpx` for Gmail REST API calls, `gmail.py` module for Gmail-specific logic isolation.
-**Implements:** Two-tier HTTP pattern (ClawsClient to auth server + raw httpx to Gmail API); MIME payload flattening; subcommand CLI with argparse.
-**Avoids:** base64url encoding bug (helper written and tested first), raw Google API errors surfaced to agent, full message bodies fetched during list operations (use `format=metadata` for listing, `format=full` only for individual reads).
+**Addresses:** Auth server `subject` field, token cache key, `--as` on Gmail, `--as` on Calendar, backward compatibility.
 
-### Phase 3: Integration and Hardening
+**Avoids:** Token cache cross-agent collision (Pitfall 1), `base_creds` subject baked in (Pitfall 2), backward compatibility break, `--as` not threaded to API modules (Pitfall 3), argparse `dest="as_user"` keyword conflict.
 
-**Rationale:** After both components exist independently, verify end-to-end flows, update workspace configuration, and document the port registry and setup steps. The `claws gmail check` diagnostic subcommand becomes feasible only after both components are working.
-**Delivers:** Root `pyproject.toml` updated with new workspace members; CLAUDE.md port registry updated (port 8301 documented); setup documentation for service account + Admin Console steps with exact scope strings; `claws gmail check` diagnostic subcommand; `uv sync` verifies all tests pass end-to-end.
-**Addresses:** Developer experience gaps — unclear error messages, undocumented setup steps, port registry, Admin Console scope string format.
+**Risk:** LOW. Well-scoped changes to existing files with strong test coverage.
+
+### Phase 2: Google Drive Skill
+
+**Rationale:** By this point, the identity mechanism is proven and the `--as` pattern is established in two existing skills. Drive can be built against a working auth server with no ambiguity about how identity flows. The new HTTP patterns (binary downloads, multipart/related uploads) are the main implementation challenges.
+
+**Delivers:** `claws drive list`, `claws drive download`, `claws drive upload`, all with `--as` support. New `claws-drive` workspace member registered via entry point.
+
+**Addresses:** All Drive table-stakes features from the MVP definition.
+
+**Implements:** New `claws-drive` package following `claws-gmail` / `claws-calendar` package structure exactly.
+
+**Avoids:** Drive download vs export ambiguity (Pitfall 4), export 10 MB limit error handling, upload multipart format (Pitfall 5), N+1 API calls on list (use `fields` param).
+
+**Risk:** MEDIUM. Binary downloads and multipart/related uploads are new patterns in this codebase. Requires careful test coverage of both the binary path and the Google Workspace document export path.
 
 ### Phase Ordering Rationale
 
-- Auth server before Gmail skill: Gmail skill cannot acquire tokens or be end-to-end tested without the auth server. Mocking is insufficient — delegation validation requires real Google API calls to confirm both GCP and Admin Console setup.
-- Security decisions in Phase 1: Key file location, bind address, and `.gitignore` are architectural decisions that are expensive to change after code exists.
-- Structured output (MIME flattening) built into Phase 2 from the start: It is required by both list and read operations; retrofitting it creates inconsistency.
-- Workspace config and documentation in Phase 3: These are mechanical tasks that require both packages to exist and be tested.
+- Auth server must be first because `ClawsClient.post_json("/token", body)` is the foundation of every Google skill. Nothing can be tested end-to-end without it.
+- Updating existing skills (Gmail, Calendar) before writing new code (Drive) validates the pattern works and catches any issues with the auth server change under real conditions.
+- Drive skill is last because it is new code with no blockers once identity is working. Building it last means the `--as` pattern is mature and tested before being applied to harder HTTP patterns.
 
 ### Research Flags
 
-Phases likely needing deeper research during planning:
-- **Phase 1 (Auth Server):** Token caching implementation details may need validation against `google-auth` library behavior — specifically, the expiry timestamp format on `Credentials.expiry` and thread safety of the in-memory cache under FastAPI's async model. The startup health check design (which endpoint to call, how to surface setup instructions) warrants careful planning.
-- **Phase 2 (Gmail Skill):** MIME multipart parsing edge cases (nested parts, missing text/plain with HTML-only body, messages with only attachments) may need additional research. Pagination handling for large inboxes (`nextPageToken`) needs explicit design before implementation.
-
 Phases with standard patterns (skip research-phase):
-- **Phase 3 (Integration):** Pure configuration and documentation work. Established patterns from v1.0 apply directly (pyproject.toml workspace additions, CLAUDE.md updates, launchd plist structure).
+- **Phase 1:** Auth server and existing skill changes are surgical and well-understood. The pattern is already proven. All changes are covered by existing tests. No additional research needed.
+
+Phases needing careful task design during planning (not a full research phase):
+- **Phase 2:** Drive download binary path and `multipart/related` upload body are the only novel elements. Task plans should explicitly account for MIME type routing logic and manual multipart construction. No additional research phase needed — STACK.md and PITFALLS.md cover these in sufficient detail.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | google-auth is the only viable library; all decisions backed by official Google documentation; version compatibility confirmed against Python 3.12 |
-| Features | HIGH | Gmail REST API is stable and well-documented; feature scope is conservative and tightly bounded; MVP definition is well-reasoned |
-| Architecture | HIGH | Token vending machine pattern is well-established; existing codebase provides strong precedent; all data flows are fully traced including error paths |
-| Pitfalls | HIGH | Multiple sources confirm the domain-wide delegation two-console trap; base64url encoding trap is documented in Gmail API guides; all pitfalls have clear, testable prevention strategies |
+| Stack | HIGH | Zero new dependencies confirmed by direct codebase inspection; all required APIs exist in current versions |
+| Features | HIGH | Based on official Google Drive API v3 documentation and cross-referenced with existing Gmail/Calendar patterns |
+| Architecture | HIGH | Based on direct inspection of `app.py`, `gmail.py`, `calendar.py`; immutable credentials pattern confirmed against google-auth docs |
+| Pitfalls | HIGH | Critical bugs (cache key, base_creds subject) identified from actual code line numbers; all API-level pitfalls confirmed against official documentation |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Token caching thread safety:** FastAPI runs async; the in-memory token cache (module-level dict) is safe for single-threaded synchronous request handling but needs confirmation if the server uses async handlers with concurrent requests. Validate during Phase 1 implementation.
-- **`host.docker.internal` on Linux Docker:** Auth server binding to `127.0.0.1` works on Docker Desktop for Mac. If the project ever moves to Linux Docker, `host.docker.internal` behavior differs and firewall rules may be needed. Document as a known limitation; not a gap to resolve now.
-- **Gmail API quota under agent use:** The 250 quota units/user/second limit is unlikely to be hit by a single-user agent, but batch inbox reads (fetching headers for 20+ messages sequentially) could approach it. Research quota impact if the agent develops inbox-scanning patterns. Use `format=metadata` for listing to minimize quota cost.
-- **Minimal scope selection:** Research recommends `gmail.readonly` for reading and `gmail.send` for sending rather than the broader `gmail.modify`. The Admin Console authorization must exactly match the scopes the skill actually requests. Document which scope is used for which operation to prevent mismatch.
+- **Drive API scope in Google Workspace Admin:** The `https://www.googleapis.com/auth/drive` scope must be added to the service account's domain-wide delegation authorization in Google Workspace Admin > Security > API Controls. This is a manual admin step that cannot be automated. Must be documented as a prerequisite in Phase 2 task plans.
+
+- **Export format coverage:** The hardcoded export MIME type mapping (`document -> text/plain`, `spreadsheet -> text/csv`, `presentation -> application/pdf`) covers the common cases but not all Google Workspace types (Forms, Sites, Drawings). These edge cases are acceptable for MVP but should be noted in task plans so error handling is implemented rather than producing silent failures.
+
+- **Token cache TTL:** Research did not verify whether the current token cache has expiry logic. If cached tokens are never evicted, long-running auth server processes will accumulate stale tokens. This is existing behavior (not new to v1.3) but worth confirming during Phase 1 implementation.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- [google-auth PyPI](https://pypi.org/project/google-auth/) — version 2.49.1 confirmed 2026-03-12; compatibility and API surface
-- [google.oauth2.service_account docs](https://googleapis.dev/python/google-auth/latest/reference/google.oauth2.service_account.html) — `Credentials.from_service_account_file()`, `.with_subject()`, `.with_scopes()`
-- [Gmail REST API reference](https://developers.google.com/workspace/gmail/api/reference/rest) — endpoint URLs, parameters, formats, quota units per operation
-- [Google OAuth2 server-to-server guide](https://developers.google.com/identity/protocols/oauth2/service-account) — domain-wide delegation JWT flow
-- [Google Workspace Admin: Domain-wide delegation setup](https://support.google.com/a/answer/162106?hl=en) — two-console setup requirement, scope string format
-- [Domain-wide delegation best practices](https://support.google.com/a/answer/14437356?hl=en) — security recommendations
-- [Google: Best practices for service account keys](https://docs.cloud.google.com/iam/docs/best-practices-for-managing-service-account-keys) — key storage guidance
-- [Gmail API: Create and send email messages](https://developers.google.com/workspace/gmail/api/guides/sending) — base64url encoding requirement
-- [Gmail API Usage Limits and Quotas](https://developers.google.com/workspace/gmail/api/reference/quota) — quota unit costs per endpoint
-
-### Secondary (MEDIUM confidence)
-- [GitHub: google-auth #1785](https://github.com/googleapis/google-auth-library-python/issues/1785) — confirms ADC does not work for domain-wide delegation; explicit credential management required
-- [GitHub: googleapis/google-api-python-client #984](https://github.com/googleapis/google-api-python-client/issues/984) — `Precondition check failed` root cause confirmed as missing subject
+- Existing codebase: `servers/google-auth/src/google_auth_server/app.py` — current auth server structure, cache key, credential flow
+- Existing codebase: `skills/gmail/src/claws_gmail/gmail.py` — token acquisition pattern
+- Existing codebase: `skills/calendar/src/claws_calendar/calendar.py` — confirms identical pattern to Gmail
+- [Google Drive API v3 REST Reference](https://developers.google.com/workspace/drive/api/reference/rest/v3) — endpoint URLs, methods, response schemas
+- [Google Drive files.list](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list) — query parameters, pagination, fields
+- [Google Drive Upload Guide](https://developers.google.com/drive/api/guides/manage-uploads) — upload types, multipart/related format
+- [Google Drive files.get with alt=media](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/get) — download, export for Google Docs
+- [Google Drive API Scopes](https://developers.google.com/drive/api/guides/api-specific-auth) — scope options and sensitivity
+- [Google Drive files.export reference](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/export) — 10 MB limit
+- [Google Workspace MIME types](https://developers.google.com/workspace/drive/api/guides/mime-types) — `application/vnd.google-apps.*` types
+- [google-auth Python library: service_account module](https://google-auth.readthedocs.io/en/master/reference/google.oauth2.service_account.html) — `with_subject()` and `with_scopes()` immutability
+- [Domain-wide delegation best practices](https://support.google.com/a/answer/14437356?hl=en) — per-request impersonation
+- [Using OAuth 2.0 for Server to Server Applications](https://developers.google.com/identity/protocols/oauth2/service-account) — delegation flow
 
 ---
-*Research completed: 2026-03-19*
+*Research completed: 2026-03-21*
 *Ready for roadmap: yes*

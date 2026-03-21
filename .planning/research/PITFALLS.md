@@ -1,187 +1,174 @@
 # Pitfalls Research
 
-**Domain:** Google service account auth server + Gmail skill for Docker-to-host CLI architecture
-**Researched:** 2026-03-19
-**Confidence:** HIGH
+**Domain:** Multi-agent identity (`--as` flag) + Google Drive skill for existing claws monorepo
+**Researched:** 2026-03-21
+**Confidence:** HIGH (based on codebase inspection + official Google documentation)
 
 ## Critical Pitfalls
 
-### Pitfall 1: Missing `subject` (impersonated user) in delegated credentials
+### Pitfall 1: Token Cache Key Does Not Include Subject
 
 **What goes wrong:**
-Service account credentials are created without specifying which domain user to impersonate. Gmail API calls return `400 Precondition check failed` or `403 Forbidden`. This is the single most common failure when integrating Gmail with service accounts. The error message gives zero indication that the fix is adding a `subject` parameter.
+The current auth server caches tokens with `cache_key = frozenset(req.scopes)` (line 91 of `app.py`). When `--as` adds per-agent identity, two agents requesting the same scopes (e.g., both requesting `gmail.modify`) get the same cached token -- which belongs to whichever agent requested first. Agent A silently reads Agent B's Gmail. This is a data access crossover bug that produces no errors.
 
 **Why it happens:**
-Domain-wide delegation requires two things: (1) the service account has delegation enabled in GCP, and (2) every API call specifies which domain user to act as via `credentials.with_subject("user@domain.com")`. Developers assume the service account can access Gmail directly -- it cannot. Gmail has no concept of a service account's own mailbox. The service account must always impersonate a real user.
+The cache was designed when only one subject existed (set via `GOOGLE_DELEGATED_USER` at startup). Scopes were the only varying dimension. Adding a second dimension (subject) without updating the cache key is the single most predictable bug in this milestone.
 
 **How to avoid:**
-The auth server's `/token` endpoint must require a `subject` parameter (the email to impersonate) whenever the requested scopes include Gmail (or any user-scoped Google API). Return `400` with a clear message if `subject` is missing. Never default `subject` to the service account email.
+Change the cache key to `(frozenset(scopes), subject)` where `subject` is the requested user or the default. Do this in the same commit that adds subject support to `POST /token` -- never ship one without the other.
 
 **Warning signs:**
-- `Precondition check failed` from Gmail API
-- `403 Forbidden` with no further detail
-- Token generation succeeds but downstream API calls fail
-- "Works" for Drive/Calendar but fails for Gmail (all require subject, but Gmail gives the worst errors)
+- Agent A sees Agent B's email/calendar/files
+- Tests pass when only testing one agent at a time but fail with interleaved agents
+- "Works in dev" (single user) but breaks in production (multiple agents)
 
 **Phase to address:**
-Auth server design -- the `/token` endpoint contract must require `subject` for user-scoped APIs from the start.
+Phase 1 (Auth server identity changes) -- this is the first thing to fix, before any skill changes.
 
 ---
 
-### Pitfall 2: Service account JSON key file leaking into containers or git
+### Pitfall 2: `base_creds` Has Subject Baked In at Startup
 
 **What goes wrong:**
-The service account key file (JSON containing a private RSA key) gets committed to git, baked into a Docker image, or passed as an environment variable. This key never expires and grants full delegation access to every user in the Google Workspace domain -- all email, all calendar, all drive -- forever.
+The current auth server creates `base_creds` at startup with `subject=subject` baked into `from_service_account_file()` (line 44-45 of `app.py`). The `POST /token` handler calls `base_creds.with_scopes()` but never calls `with_subject()`. Since google-auth's `with_subject()` and `with_scopes()` both return NEW credentials objects (immutable pattern), adding a `subject` field to the token request without also calling `with_subject()` will silently continue using the startup subject for every request.
 
 **Why it happens:**
-The key looks harmless (just JSON). The path of least resistance is to copy it wherever it is needed. In this architecture specifically, the temptation is to mount the key into the Docker container so the Gmail skill can authenticate directly, bypassing the auth server entirely.
+The google-auth library uses immutable credentials. `with_scopes()` returns a new object that carries forward the original subject. To change the subject, you must call `with_subject()` explicitly. The current code path is: `base_creds.with_scopes(scopes)` which preserves the startup subject regardless of what `subject` was in the request body.
 
 **How to avoid:**
-The key file lives ONLY on the host Mac mini, readable only by the auth server process. Store it outside the repo entirely: `~/.config/lobster-claws/service-account.json`. The entire architectural purpose of the auth server is that containers never touch the key -- they request short-lived (1-hour) access tokens over HTTP. Add `*service-account*` and `*credentials*.json` patterns to `.gitignore` immediately.
+Store `base_creds` WITHOUT a default subject at startup. The lifespan should create credentials with `from_service_account_file(key_path)` (no `subject=`). The startup validation can use `base_creds.with_subject(default_user)` for the health check. Per-request: `base_creds.with_subject(requested_subject).with_scopes(scopes)`.
 
 **Warning signs:**
-- Any `.json` key file reference in Dockerfile, docker-compose, or skill code
-- `GOOGLE_APPLICATION_CREDENTIALS` environment variable set in container context
-- Key file anywhere inside the repo directory tree
-- Skill code importing `google.oauth2.service_account` directly
+- All `--as` requests return data for the startup user regardless of the `--as` value
+- No error is raised -- the token mints successfully but for the wrong user
+- Health endpoint always shows the env var user as "subject"
 
 **Phase to address:**
-Auth server foundation -- key storage location must be decided before any code exists.
+Phase 1 (Auth server identity changes) -- fundamental to the identity architecture.
 
 ---
 
-### Pitfall 3: Two-console delegation setup -- GCP Console is not enough
+### Pitfall 3: `--as` Flag Parsed but Not Threaded to Token Acquisition
 
 **What goes wrong:**
-Code is correct, service account exists, delegation checkbox is enabled in GCP Console, but Gmail API calls fail with `401 Unauthorized` or `403 Insufficient Permission`. The developer spends hours debugging code when the problem is an admin console configuration step they never performed.
+Gmail and Calendar both have a `get_access_token()` function that takes zero arguments and calls the auth server with hardcoded scopes and no subject. Adding `--as` to the CLI argument parser but forgetting to pass the subject through the entire call chain means the flag is silently ignored. Every operation uses the default user.
 
 **Why it happens:**
-Domain-wide delegation requires configuration in TWO separate admin consoles:
-1. **GCP Console:** Create service account, check "Enable domain-wide delegation"
-2. **Google Workspace Admin Console:** Security > API Controls > Domain-wide Delegation > Add the service account's Client ID + authorize specific OAuth scope strings
-
-Developers complete step 1 and assume step 2 happened automatically. It did not. The scope strings must match exactly, including the full `https://www.googleapis.com/auth/gmail.readonly` URL format.
+The `--as` flag is parsed in `cli.py`, but `get_access_token()` lives in the API module (`gmail.py`, `calendar.py`). Every public function in the call chain (`list_inbox`, `read_message`, `send_message`, `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`) needs a `subject` parameter threaded through. That is 8+ function signatures to update across two packages.
 
 **How to avoid:**
-The auth server must validate delegation works on startup by making a real API call (e.g., `GET https://gmail.googleapis.com/gmail/v1/users/{subject}/profile`). If it fails, log the exact error and the exact Admin Console URL where scopes need to be configured. Document the setup steps with the exact scope strings needed.
+Add `subject: str | None = None` to `get_access_token()` first, then to every public API function, then wire the CLI flag. Test with two different subjects in the same test -- assert the mock auth server receives different `subject` values.
 
 **Warning signs:**
-- Auth server starts without errors but all token-consuming API calls fail
-- Works for one scope but not another (partial scope authorization)
-- `401` or `403` only when calling Google APIs, not during token generation itself
+- `--as` flag accepted by argparse but all operations use default user's data
+- Tests only verify flag is accepted, not that it changes behavior
+- `get_access_token()` signature unchanged from v1.2
 
 **Phase to address:**
-Auth server implementation -- startup health check must validate end-to-end delegation, not just key file loading.
+Phase 1 (after auth server changes, before Drive skill).
 
 ---
 
-### Pitfall 4: Token caching done wrong -- stale tokens or no caching
+### Pitfall 4: Drive Download vs Export -- Two Different Code Paths
 
 **What goes wrong:**
-Two failure modes: (A) No caching -- every CLI invocation generates a new JWT, exchanges it for an access token via Google's token endpoint, adding 200-500ms latency per call and risking rate limits. (B) Tokens cached past their 3600-second lifetime -- API calls fail with `401 Invalid Credentials` and the skill has no retry path.
+Google Drive has two file types requiring different download methods: (1) binary blobs (PDFs, images) use `files.get?alt=media`, and (2) Google Workspace documents (Docs, Sheets, Slides) use `files.export` with an explicit MIME type. Using `files.get?alt=media` on a Google Doc returns an error. A download command handling only one path fails on the other.
 
 **Why it happens:**
-Google access tokens expire after exactly 1 hour (3600 seconds). The `google-auth` library handles refresh automatically when used with the Google API client library, but this project uses direct REST calls via httpx (matching the established pattern). Token lifecycle must be managed manually in the auth server.
+Most Drive tutorials show one or the other. Developers implement `alt=media` for binary files, ship it, then discover Google Docs fail. The MIME type `application/vnd.google-apps.document` indicates a Workspace document, but you must check for it explicitly.
 
 **How to avoid:**
-Cache tokens in the auth server keyed by `(subject, frozenset(scopes))`. Set expiry conservatively to 3500 seconds (100-second safety buffer). Return both the token and its expiry timestamp from the `/token` endpoint so skills can cache locally and skip redundant auth server calls. Use `google.oauth2.service_account.Credentials` for JWT creation and signing -- do not hand-roll JWT construction.
+In the download command, first fetch file metadata to get the MIME type. If it starts with `application/vnd.google-apps.*`, use `files.export` with an appropriate export MIME type (e.g., `text/plain` for Docs, `text/csv` for Sheets). Otherwise, use `files.get?alt=media`. Handle this transparently -- the user should not need to know which type a file is.
 
 **Warning signs:**
-- Noticeable latency (~500ms) on every `claws gmail` command (no caching)
-- Intermittent `401` errors after ~1 hour of continuous use (stale cache)
-- High request volume to `oauth2.googleapis.com` visible in server logs
+- Download works for uploaded PDFs but fails for Google Docs
+- Error: "Export only supports Workspace documents"
+- Tests only cover binary file downloads
 
 **Phase to address:**
-Auth server implementation -- token caching is core server logic, not an optimization to add later.
+Phase 2 (Drive skill) -- must be in the initial download implementation.
 
 ---
 
-### Pitfall 5: Gmail send requires base64url encoding, not standard base64
+### Pitfall 5: Drive Export Has a Hard 10 MB Limit
 
 **What goes wrong:**
-Emails sent via `POST /gmail/v1/users/{userId}/messages/send` are rejected with `400 Invalid Message` or arrive garbled. The `raw` field must be base64**url**-encoded (RFC 4648 section 5, using `-_` instead of `+/`, no `=` padding), but developers use Python's `base64.b64encode()` which produces standard base64.
+`files.export` has a hard 10 MB limit on exported content. Large Google Docs or Sheets fail or return truncated content. This is easy to miss because test documents are typically small.
 
 **Why it happens:**
-A one-character function name difference: `b64encode()` vs `urlsafe_b64encode()`. Standard base64 uses `+` and `/` characters which are not URL-safe. The Gmail API docs mention "base64url" but do not emphasize the difference from standard base64. Python's `urlsafe_b64encode()` still adds `=` padding which must also be stripped.
+The limit is documented but buried. Most test documents are well under 10 MB. The limit only surfaces with real-world spreadsheets or heavily-formatted documents.
 
 **How to avoid:**
-Write a dedicated helper and test it:
-```python
-import base64
-def encode_message(mime_bytes: bytes) -> str:
-    return base64.urlsafe_b64encode(mime_bytes).decode("ascii").rstrip("=")
-```
-Unit test: verify output contains no `+`, `/`, or `=` characters.
+Document the 10 MB export limit in CLI help text. When export returns a 403/413 error, surface a clear message: "Document too large to export (10 MB limit)." For MVP this is acceptable -- agents typically read document content, not export massive datasets.
 
 **Warning signs:**
-- `400` errors when sending but not when reading mail
-- Sent emails with garbled subjects or body content
-- Tests pass with mocked API but fail against real Gmail
+- Export works in tests but fails on production documents
+- Truncated content returned without error
 
 **Phase to address:**
-Gmail skill implementation -- encoding helper should be written and tested before any send logic.
+Phase 2 (Drive skill) -- handle in error handling.
 
 ---
 
-### Pitfall 6: ClawsClient lacks methods needed for JSON API calls
+### Pitfall 6: Startup Validation Only Proves One Subject Works
 
 **What goes wrong:**
-The Gmail skill needs to POST JSON bodies (sending mail), make GET requests with custom headers (Bearer auth), and potentially DELETE. The existing `ClawsClient` only has `get()` and `post_file()`. Developers either hack around the limitation with raw httpx calls or extend ClawsClient inconsistently per-skill, breaking the established error handling patterns.
+The current server validates delegation at startup by minting a token for `GOOGLE_DELEGATED_USER`. With multi-agent identity, this proves delegation works for ONE user but not others. The server starts successfully, then `--as other@domain.com` fails at runtime if that user is suspended, doesn't exist, or delegation is misconfigured for their OU.
 
 **Why it happens:**
-`ClawsClient` was designed for whisper's simple use case: health check GET and file upload POST. The auth server and Gmail skill need `post_json()`, and the Gmail skill needs to pass Bearer tokens to the auth server's responses through to Google. The client was never designed for this flow.
+Domain-wide delegation is configured per-scope in the Workspace admin console, and impersonation works for any active user in the domain. But suspended or deleted users fail. Developers assume startup validation covers all cases.
 
 **How to avoid:**
-Extend `ClawsClient` in `claws-common` BEFORE building the auth server or Gmail skill. Add `post_json(path, data, headers=None)` at minimum. Keep the same `ConnectionError`/`TimeoutError` wrapping with service-aware messages. This is a prerequisite for the auth and Gmail work.
+Keep startup validation for the default user. Add clear error messages at `/token` when delegation fails for a specific subject -- include the subject email in the error so the operator knows which user failed, not just "Failed to mint token."
 
 **Warning signs:**
-- Raw `httpx.post()` or `httpx.get()` calls appearing in skill code
-- Duplicated try/except blocks outside ClawsClient
-- Inconsistent timeout behavior between skills
+- Server starts fine but `--as` requests fail with opaque 503 errors
+- Error messages say "Failed to mint token after retry" without indicating which subject
 
 **Phase to address:**
-Common library update -- must happen before auth server or Gmail skill work begins.
+Phase 1 (Auth server identity changes) -- error messages must include subject context.
 
 ---
 
-### Pitfall 7: Auth server bound to 0.0.0.0 exposes token minting to entire network
+### Pitfall 7: Drive Upload Requires Two-Part Multipart Body
 
 **What goes wrong:**
-The auth server listens on `0.0.0.0:8301` (following the whisper server pattern of binding to all interfaces). Any device on the local network can request access tokens for any user in the domain. On a home network this might be acceptable risk; on a shared network it is a full domain compromise.
+Drive file upload requires metadata (name, parent folder) as JSON AND file content as binary in a single multipart request. Sending only the file bytes creates a file with no name. Sending only metadata creates an empty file. The multipart boundary format is specific: `multipart/related` (not `multipart/form-data`).
 
 **Why it happens:**
-The whisper server binds to `0.0.0.0` because Docker containers need to reach it via `host.docker.internal`, which on Docker Desktop for Mac resolves to the host's IP on the Docker bridge. Developers copy this pattern for the auth server without considering that the auth server is fundamentally more sensitive -- it mints credentials rather than just processing audio.
+The existing `ClawsClient.post_file()` uses `multipart/form-data` (standard web upload). Google Drive's upload API uses `multipart/related` which is a different format requiring manual construction or httpx's lower-level APIs.
 
 **How to avoid:**
-Bind the auth server to `127.0.0.1` only. On Docker Desktop for Mac, `host.docker.internal` resolves to `127.0.0.1` from the container's perspective (the host loopback), so binding to localhost still allows container access. This is a Docker Desktop for Mac specific behavior -- document it clearly. If the project ever moves to Linux Docker, this will need revisiting with firewall rules.
+Do not use `ClawsClient.post_file()` for Drive uploads. Build the multipart/related body manually: first part is JSON metadata with `Content-Type: application/json`, second part is file content with the file's MIME type. Use httpx directly for this specific endpoint, matching the existing pattern in gmail.py and calendar.py where external Google API calls use raw httpx.
 
 **Warning signs:**
-- `netstat` or `lsof` showing the auth server listening on `*:8301` or `0.0.0.0:8301`
-- Auth server accessible from other devices on the network
-- No authentication between skill and auth server
+- Uploaded files have "Untitled" as name
+- Uploaded files are 0 bytes
+- Upload returns success but file metadata is wrong
 
 **Phase to address:**
-Auth server foundation -- bind address decision must be made at server creation time.
+Phase 2 (Drive skill) -- must be correct from initial implementation.
 
 ---
 
-### Pitfall 8: Gmail API not enabled in the service account's GCP project
+### Pitfall 8: Breaking Backward Compatibility When Subject Becomes Required
 
 **What goes wrong:**
-API calls fail with `403 Access Not Configured` or `403 Gmail API has not been used in project XXXXX`. The service account belongs to one GCP project, but the Gmail API is enabled in a different project, or not enabled at all.
+If the auth server's `POST /token` is changed to REQUIRE `subject` in the request body, all existing skill code breaks immediately. Gmail and Calendar skills currently send `{"scopes": [...]}` with no subject field. If the server rejects this with 422 (Pydantic validation error), all skills fail until updated simultaneously.
 
 **Why it happens:**
-GCP projects proliferate. Developers enable APIs in whichever project they have open. The Gmail API must be enabled in the same project that owns the service account. This is a 30-second fix once identified, but can waste hours of debugging because the error message references a project number (not name) that may not be immediately recognizable.
+Natural instinct is to make the new parameter required to enforce correctness. But the auth server and skills are separate packages deployed independently. The server might be updated before skills are.
 
 **How to avoid:**
-The auth server startup health check (same one that validates delegation) will catch this. Log the project ID from the service account key file at startup so it is always clear which project is in play.
+Make `subject` optional on `TokenRequest` with `subject: str | None = None`. When omitted, fall back to the `GOOGLE_DELEGATED_USER` env var (current behavior). This means existing skill code works without changes and `--as` is purely additive. The env var becomes the default identity.
 
 **Warning signs:**
-- Error messages mentioning "project" or "API not enabled"
-- Service account email address domain (`xxx@project-id.iam.gserviceaccount.com`) does not match expected project
+- All existing tests fail after auth server update
+- Skills return 422 errors with "field required" messages
+- Simultaneous deploy required across all packages
 
 **Phase to address:**
-Auth server implementation -- covered by the same startup health check as Pitfall 3.
+Phase 1 (Auth server identity changes) -- backward compatibility is a hard requirement.
 
 ---
 
@@ -189,108 +176,103 @@ Auth server implementation -- covered by the same startup health check as Pitfal
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Hardcoded impersonation subject in auth server | Skip parameterization, faster to build | Cannot add Calendar/Drive skills for other users; locks to one email address | Never -- always parameterize subject on the `/token` endpoint |
-| Using `google-api-python-client` in the container skill | Familiar API, handles pagination and discovery | Pulls 15+ transitive dependencies into the container (protobuf, google-auth, uritemplate, etc.), conflicts with the thin-CLI httpx-only pattern | Never -- use direct REST via httpx to match existing architecture |
-| Skipping token caching | Simpler auth server implementation | 200-500ms latency per CLI call, risk hitting Google token endpoint rate limits | Only during initial prototyping; must be added before any skill uses it |
-| Single hardcoded scope set | Simpler token endpoint | Cannot request different scopes for different operations (read-only vs send) | Acceptable for v1.1 while only Gmail exists; refactor when Calendar is added |
-| No retry on Google API 429/5xx | Simpler skill code | Agent hits rate limits during batch inbox reads | Acceptable for v1.1 -- single user, low volume; add when batch operations are needed |
-| Inlining MIME construction | Fewer abstractions | Cannot reuse for Calendar invites, Drive sharing notifications | Acceptable for v1.1; extract when second email-sending use case appears |
+| Simple upload only (no resumable) | Much simpler code, faster to ship | Cannot upload files over 5 MB | MVP -- agents rarely upload large files |
+| Default subject from env var when `--as` omitted | Backward compatible, no breaking changes | Implicit behavior may confuse new operators | Always -- explicit default is good UX |
+| No per-subject scope restriction | Simpler auth server, any agent can request any scope | Any agent can impersonate any user and access any API | Now -- internal network only, trusted agents |
+| Hardcoded export MIME types (text/plain for Docs, text/csv for Sheets) | No user config needed | Cannot export in other formats (PDF, DOCX) | MVP -- add `--format` flag later |
+| Duplicated `get_access_token()` per skill module | Each skill is self-contained | Subject threading logic duplicated in gmail.py, calendar.py, drive.py | Acceptable for 3 skills; extract to claws-common if a 4th skill appears |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Service account JWT signing | Hand-rolling JWT with PyJWT or similar | Use `google.oauth2.service_account.Credentials` -- handles claims format, RS256 signing, and token exchange correctly |
-| Gmail `messages.list` | Assuming response contains full message bodies | `messages.list` returns only message IDs and thread IDs; must call `messages.get` per message for headers/body |
-| Gmail `messages.send` userId | Using literal string `"me"` as userId | `"me"` works IF the access token was created with correct `subject`; use the actual impersonated email for clarity and debuggability |
-| Gmail message format | Requesting `format=full` for inbox listing | Use `format=metadata` with `metadataHeaders=["From","Subject","Date"]` for listing; `format=full` only for individual message reads -- saves 20x quota |
-| Auth server port | Using port 8300 (already taken by whisper-server) | Use 8301 for google-auth server; document in CLAUDE.md port registry |
-| Gmail OAuth scopes | Using `https://mail.google.com/` (unrestricted full access) | Use minimal scopes: `gmail.readonly` for reading, `gmail.send` for sending, `gmail.modify` for label changes |
-| Token endpoint design | Returning only the access token string | Return `{"access_token": "...", "expires_at": 1234567890}` so skills can cache locally and know when to refresh |
-| Gmail search queries | Building complex query strings without URL encoding | Use httpx `params={"q": query}` which handles encoding automatically; do not manually construct query strings |
+| Auth server `POST /token` | Adding `subject` as query parameter | Add to `TokenRequest` Pydantic model body: `subject: str | None = None` |
+| `google-auth` library | Calling `with_scopes()` on credentials that already have subject baked in | Store base credentials WITHOUT subject; chain `with_subject().with_scopes()` per request |
+| Drive `files.list` | Omitting `fields` parameter -- returns only `id` and `kind` | Specify `fields=files(id,name,mimeType,size,modifiedTime,parents)` |
+| Drive `files.list` | Not handling `nextPageToken` -- only first page returned | For MVP, set `pageSize=100` and document limit; add pagination later |
+| Drive download | Using `alt=media` on Google Workspace documents | Check MIME type first; use `files.export` for `application/vnd.google-apps.*` |
+| Drive upload | Using `multipart/form-data` (web standard) | Drive uses `multipart/related` -- different format requiring manual construction |
+| Drive upload | Forgetting to specify parent folder | Without `parents: ["folder_id"]` in metadata, file goes to user's root Drive |
+| `--as` flag on skills | Adding flag to parent parser (before subcommands) | Add to parent parser so it applies to ALL subcommands: `parser.add_argument("--as", dest="as_user")` |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| No token caching in auth server | Every CLI call takes 500ms+ for auth roundtrip | Cache tokens by `(subject, frozenset(scopes))` with 3500s TTL | Noticeable immediately on every single command |
-| Fetching full message bodies in list operations | Slow inbox queries, burns 5 quota units per message instead of 5 for the whole list | Use `messages.list` for IDs, then selective `messages.get` with `format=metadata` | More than 10 messages per query |
-| No skill-side token caching | Every CLI call hits auth server even when token is still valid | Auth server returns `expires_at`; skill caches token locally until near-expiry | Noticeable when running multiple gmail commands in sequence |
-| Synchronous token refresh blocking requests | Auth server hangs while refreshing an expired token; concurrent requests queue behind it | Refresh proactively when token is within 5 minutes of expiry, not on-demand | Under concurrent use (multiple skills calling auth server simultaneously) |
+| Token cache returns wrong user's token (cache key bug) | Silent data crossover -- no performance symptom, just wrong data | Include subject in cache key from day one | Immediately with multi-agent use |
+| Minting new token per request when cache key is wrong | 200-500ms latency per CLI call, Google rate limits | Fix cache key to `(frozenset(scopes), subject)` | Immediately with concurrent agents |
+| N+1 API calls for Drive file listing | Listing 100 files takes 101 calls if fetching metadata individually | Use `fields` parameter on `files.list` for all metadata in one call | At 50+ files |
+| Synchronous file download blocking CLI | CLI hangs during large downloads with no output | Stream response with chunked writes; print progress to stderr | Files over 10 MB |
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Service account key in repo or Docker image | Full domain-wide delegation to all users' email, calendar, drive -- forever (key never expires) | Key lives only on host filesystem outside repo; `.gitignore` blocks `*service-account*` and `*credentials*.json`; auth server is sole consumer |
-| Overly broad OAuth scopes in Admin Console | Service account can read, modify, and delete all users' email | Authorize minimum scopes in Admin Console: `gmail.readonly`, `gmail.send`, `gmail.modify`; never `https://mail.google.com/` |
-| Auth server on 0.0.0.0 | Any device on local network can mint tokens for any domain user | Bind to `127.0.0.1`; Docker Desktop for Mac reaches host loopback via `host.docker.internal` |
-| Logging access tokens | Tokens visible in server logs, launchd stdout/stderr logs, Console.app | Never log token values; log token metadata only: subject, scopes, expiry time, request timestamp |
-| No audit trail for token requests | Cannot determine which skill impersonated which user, or when | Log every `/token` request with timestamp, requested subject, scopes, and requesting IP |
-| Passing token via query parameter | Token visible in server access logs, browser history, proxy logs | Always pass tokens in `Authorization: Bearer` header, never in URLs |
+| `--as` allows impersonation of any domain user with no audit trail | Any agent operator can access any user's email, calendar, drive | Log every token request with timestamp, requested subject, scopes, and source IP |
+| Allowing `--as` with external domain emails | Confusing errors when delegation fails for non-domain users | Validate `--as` value ends with expected domain before sending to auth server |
+| Returning access tokens in error messages | Token leakage in agent logs, stderr | Never include token value in error output; log only subject and scope metadata |
+| Drive download path traversal | Agent passes `../../etc/something` as output path | Download to current directory by default; validate output path |
+| Cache poisoning via subject | Attacker sends `subject=admin@domain.com` to get admin's token | Acceptable risk -- auth server on 127.0.0.1, internal network only |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Passing raw Google API errors to the agent | Agent gets `400 Precondition check failed` with no context | Translate Google errors: "Gmail delegation not configured for user@domain.com. Admin must authorize scopes in Workspace Admin Console." |
-| No way to verify auth setup | Agent tries Gmail, gets cryptic error, cannot tell if setup or runtime issue | `claws gmail check` subcommand that validates: auth server running, delegation configured, Gmail API enabled, test email fetch works |
-| Email send appears to succeed but is queued | Agent reports "sent" but email is stuck | Verify `messages.send` response contains `id` and `labelIds` includes `SENT`; report actual status |
-| Gmail search syntax undocumented | Agent cannot construct queries | Skill `--help` and error output should include common query examples: `from:boss@co.com`, `subject:invoice`, `newer_than:1d`, `is:unread` |
-| No inbox summary -- just raw message dumps | Agent overwhelmed by full message content for every email | Default `list` to showing From, Subject, Date, snippet; require explicit `read <id>` for full body |
+| `--as` required on every command | Verbose, agents must always specify identity | Make `--as` optional; default to `GOOGLE_DELEGATED_USER` env var |
+| Drive download outputs binary to stdout | Terminal corruption, garbled output | Save to file by default (use filename from Drive metadata); only stdout with explicit `--stdout` flag |
+| Drive list shows file IDs without names | Opaque identifiers mean nothing to agents | Always include name, MIME type, size, and modified time in list output |
+| Inconsistent error format across skills for auth failures | Agent parses gmail errors differently from calendar errors | Centralize delegation error handling pattern -- same format for "auth server down" and "delegation failed for user X" |
+| `--as` flag name conflicts with Python keyword | `args.as` is a syntax error | Use `dest="as_user"`: `parser.add_argument("--as", dest="as_user", ...)` |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Auth server token endpoint:** Returns tokens -- but does it handle expiry and refresh? Test by waiting > 1 hour with a cached token.
-- [ ] **Auth server health check:** Starts without error -- but does it validate actual delegation with a real API call, or just check the key file exists?
-- [ ] **Gmail send:** Sends one test email -- but does it handle CC/BCC, reply-to-thread (`threadId`), and HTML bodies? Verify MIME construction covers these.
-- [ ] **Gmail list:** Returns messages -- but does it handle pagination for inboxes with > 100 messages? Check `nextPageToken` handling.
-- [ ] **Gmail search:** Returns results -- but does it handle zero results without erroring? Must return empty list, not crash.
-- [ ] **Admin Console scopes:** Delegation works for `gmail.readonly` -- but are ALL required scopes authorized? Missing `gmail.send` means send silently fails.
-- [ ] **Port 8301:** Auth server runs -- but is the port documented in CLAUDE.md, launchd plist, and the skill's default config?
-- [ ] **Error handling:** Skill handles auth server connection errors -- but does it distinguish "auth server down" from "Google API rejected the request" from "invalid subject email"?
-- [ ] **Token in logs:** Server runs fine -- but check launchd stdout/stderr log files for any token values leaking into plaintext logs.
+- [ ] **Token cache key:** Verify cache key includes BOTH scopes AND subject -- test by requesting same scopes for two different subjects and confirming different tokens returned
+- [ ] **`base_creds` is subject-free:** Verify stored base credentials do NOT have a hardcoded subject -- assert `app.state.base_creds._subject is None` in tests
+- [ ] **`--as` flag threading:** Verify subject reaches auth server -- mock auth server in tests and assert `subject` field present in POST body
+- [ ] **Backward compatibility:** All 151 existing tests pass without `--as` flag -- subject defaults to env var value
+- [ ] **Drive download for Google Docs:** Test downloading a Google Doc (not just binary) -- verify `files.export` path is used
+- [ ] **Drive upload metadata:** Verify uploaded file has correct name and parent folder -- not just that bytes arrived
+- [ ] **Error messages include subject:** When token minting fails, verify error says which user failed
+- [ ] **`--as` argparse dest:** Verify `dest="as_user"` is used since `as` is a Python keyword -- `args.as` would be a syntax error
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Key file committed to git | HIGH | Revoke key immediately in GCP Console, generate new key, use BFG Repo-Cleaner to purge from all history, force-push, rotate any tokens that may have been generated with the compromised key |
-| Wrong scopes in Admin Console | LOW | Update in Admin Console > Security > API Controls > Domain-wide Delegation; takes effect within minutes, no code changes needed |
-| Token caching bug (stale tokens) | LOW | Restart auth server to clear in-memory cache; add `/cache/clear` admin endpoint for future incidents |
-| base64 vs base64url encoding | LOW | Fix encoding function, add unit test; no data loss since Gmail API rejects malformed messages outright |
-| Gmail API not enabled in GCP project | LOW | Enable in GCP Console > APIs & Services > Enable APIs; takes effect immediately |
-| Auth server on 0.0.0.0 | MEDIUM | Change bind to 127.0.0.1, restart; audit launchd logs for any external IP token requests |
-| Subject not required on token endpoint | MEDIUM | Add validation, update all skill calls; existing tokens still expire in < 1 hour so exposure is time-limited |
-| ClawsClient missing methods | LOW | Add methods to claws-common, bump version; all skills using it get the fix on next `uv sync` |
+| Token cache returns wrong user's data | LOW | Fix cache key, restart auth server (in-memory cache clears on restart) |
+| `base_creds` has subject baked in | MEDIUM | Refactor `lifespan()` to store subject-free credentials; update token endpoint to call `with_subject()`; update tests |
+| `--as` parsed but not threaded | MEDIUM | Add `subject` parameter to every public function in gmail.py, calendar.py; update all call sites and tests (8+ functions) |
+| Drive download uses wrong endpoint for Docs | LOW | Add MIME type check; route to `files.export` for Workspace documents |
+| Backward compatibility broken | LOW | Make `subject` optional on `TokenRequest`, default to env var |
+| Upload uses wrong multipart format | MEDIUM | Rewrite upload to use `multipart/related`; test against real Drive API |
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Missing subject in credentials | Auth server design | `/token` returns 400 when `subject` is omitted for Gmail scopes |
-| Key file security | Auth server foundation | Key path is outside repo; `.gitignore` blocks credentials patterns; no key references in Dockerfile |
-| Two-console delegation setup | Auth server implementation | Startup health check makes real Gmail API call; fails loudly with setup instructions if delegation is broken |
-| Token caching | Auth server implementation | Integration test: two `/token` requests within 1 second return same token; only one Google token exchange occurs |
-| base64url encoding | Gmail skill implementation | Unit test: encoded MIME output contains no `+`, `/`, or `=` characters |
-| ClawsClient extension | Common library update (prerequisite) | `post_json()` method exists with same error handling as `get()` and `post_file()` |
-| Gmail API not enabled | Auth server implementation | Covered by startup health check (same as delegation validation) |
-| Auth server bind address | Auth server foundation | `lsof -i :8301` shows `127.0.0.1` not `*` after server starts |
-| Port conflict with whisper | Auth server foundation | Port 8301 documented in CLAUDE.md; no collision with whisper on 8300 |
+| Token cache key missing subject | Phase 1: Auth server identity | Test: same scopes, different subjects produce different tokens |
+| `base_creds` has subject baked in | Phase 1: Auth server identity | Test: `app.state.base_creds._subject is None` |
+| Backward compatibility (subject optional) | Phase 1: Auth server identity | All 151 existing tests pass unchanged |
+| Startup validation ambiguity | Phase 1: Auth server identity | Error messages include subject email |
+| `--as` not threaded to API modules | Phase 1: Update existing skills | Mock auth server receives subject in POST body |
+| `--as` argparse dest keyword conflict | Phase 1: Update existing skills | `dest="as_user"` used; `args.as_user` works |
+| Drive download vs export | Phase 2: Drive skill | Google Doc download returns content, not error |
+| Drive export 10 MB limit | Phase 2: Drive skill | Clear error message on large document export |
+| Drive upload multipart format | Phase 2: Drive skill | Uploaded file has correct name and content |
+| Drive upload complexity (resumable) | Phase 2: Drive skill (defer) | Ship with simple upload; document 5 MB limit |
 
 ## Sources
 
-- [Google: Domain-wide delegation best practices](https://support.google.com/a/answer/14437356?hl=en)
-- [Google: Control API access with domain-wide delegation](https://support.google.com/a/answer/162106?hl=en)
-- [Google: Best practices for managing service account keys](https://docs.cloud.google.com/iam/docs/best-practices-for-managing-service-account-keys)
-- [Google: Best practices for using service accounts securely](https://docs.cloud.google.com/iam/docs/best-practices-service-accounts)
-- [Google: Using OAuth 2.0 for Server to Server Applications](https://developers.google.com/identity/protocols/oauth2/service-account)
-- [Google: Gmail API Usage Limits and Quotas](https://developers.google.com/workspace/gmail/api/reference/quota)
-- [Google: Create and send email messages (Gmail API)](https://developers.google.com/workspace/gmail/api/guides/sending)
-- [GitHub: Precondition check failed with service account (googleapis/google-api-python-client#984)](https://github.com/googleapis/google-api-python-client/issues/984)
-- [GitHub: google-auth-library-python user guide](https://github.com/googleapis/google-auth-library-python/blob/main/docs/user-guide.rst)
-- [Google: Token types and lifetimes](https://docs.cloud.google.com/docs/authentication/token-types)
+- Codebase inspection: `servers/google-auth/src/google_auth_server/app.py` lines 44-45 (subject baked into base_creds), line 91 (cache key is scopes-only), lines 104-108 (with_scopes without with_subject)
+- Codebase inspection: `skills/gmail/src/claws_gmail/gmail.py` line 20-23 (`get_access_token()` takes no arguments)
+- Codebase inspection: `skills/calendar/src/claws_calendar/calendar.py` line 18-21 (`get_access_token()` takes no arguments)
+- [google-auth Python library: service_account module](https://google-auth.readthedocs.io/en/master/reference/google.oauth2.service_account.html) -- `with_subject()` and `with_scopes()` immutability pattern (HIGH confidence)
+- [Google Drive: Upload file data](https://developers.google.com/drive/api/guides/manage-uploads) -- simple vs resumable upload, multipart/related format (HIGH confidence)
+- [Google Drive: files.export reference](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/export) -- 10 MB export limit (HIGH confidence)
+- [Google Workspace MIME types](https://developers.google.com/workspace/drive/api/guides/mime-types) -- `application/vnd.google-apps.*` types requiring export (HIGH confidence)
+- [Domain-wide delegation best practices](https://support.google.com/a/answer/14437356?hl=en) -- security considerations for impersonation (HIGH confidence)
+- [Using OAuth 2.0 for Server to Server Applications](https://developers.google.com/identity/protocols/oauth2/service-account) -- delegation flow (HIGH confidence)
 
 ---
-*Pitfalls research for: Google auth server + Gmail skill integration into lobster_claws*
-*Researched: 2026-03-19*
+*Pitfalls research for: Multi-agent identity + Google Drive skill (v1.3 milestone)*
+*Researched: 2026-03-21*

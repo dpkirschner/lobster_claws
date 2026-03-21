@@ -1,216 +1,230 @@
 # Feature Research
 
-**Domain:** Google auth server + Gmail CLI skill for AI agent tooling
-**Researched:** 2026-03-19
+**Domain:** Multi-agent identity + Google Drive CLI skill for AI agent platform
+**Researched:** 2026-03-21
 **Confidence:** HIGH
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-The "user" here is the OpenClaw AI agent invoking `claws gmail <subcommand>`. These features are the minimum for Gmail to be useful as an agent tool.
+The "user" is the OpenClaw AI agent operator. These features are what makes v1.3 complete.
+
+#### Multi-Agent Identity
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| **Auth server: serve access tokens** | Every Gmail API call needs a Bearer token. The auth server's sole purpose is producing these. | MEDIUM | JWT assertion flow: sign with RS256 private key, POST to `https://oauth2.googleapis.com/token`, cache result for ~55 min. Requires `PyJWT` + `cryptography` for RS256 signing. |
-| **Auth server: domain-wide delegation (sub claim)** | Service account alone cannot access a user's mailbox. The `sub` field in the JWT impersonates the target Gmail user. Without this, Gmail API returns 403. | LOW | Single extra field in JWT claim set. The delegated user email is a server config value (one agent = one Gmail identity). |
-| **Auth server: health endpoint** | Every claws server exposes `GET /health`. Pattern established by whisper-server. | LOW | Identical pattern to whisper-server. Return status + service name. |
-| **Auth server: token caching** | Google tokens last 3600s. Re-requesting on every call wastes time and risks rate limits. | LOW | Cache token in memory, refresh when `expires_at - buffer` is reached. Single-threaded FastAPI makes this trivial (module-level dict or dataclass). |
-| **Auth server: launchd plist** | All host servers auto-start via launchd. Established pattern. | LOW | Copy whisper-server plist, change port/paths. |
-| **Gmail server: list messages** | The most basic email operation. Agent needs to check what is in the inbox. | MEDIUM | `GET /gmail/v1/users/me/messages?q=in:inbox` returns message IDs, then batch-fetch headers for each. Pagination via `nextPageToken`. Server must handle both calls and merge results. |
-| **Gmail server: read message content** | After listing, agent needs to read actual message bodies. | MEDIUM | `GET .../messages/{id}?format=full` returns nested MIME payload. Server must extract plain text from `payload.parts` tree (recursive, multipart messages have nested parts). |
-| **Gmail server: send email** | Core capability -- agent needs to send emails on behalf of the user. | MEDIUM | `POST .../messages/send` with base64url-encoded RFC 2822 message. Server must construct MIME message from structured input (to, subject, body). |
-| **Gmail server: search by query** | Gmail's killer feature. Agent should search by sender, subject, date, labels. | LOW | Same list endpoint but with `q` parameter. Gmail search syntax is powerful: `from:x subject:y after:2024/01/01 has:attachment`. Pass through from CLI. |
-| **Gmail server: structured output** | Agent needs parseable JSON, not raw Gmail API payloads with nested MIME trees. | MEDIUM | Server-side transformation: extract From, To, Subject, Date, snippet, plain-text body from Gmail's nested payload format into flat JSON. |
-| **Gmail CLI: subcommands** | Agent invokes `claws gmail inbox`, `claws gmail read <id>`, `claws gmail send`, `claws gmail search <query>`. Subcommand pattern matches how agents think about distinct actions. | MEDIUM | argparse with subparsers. Each subcommand maps to one Gmail server endpoint. Follows existing claws-transcribe pattern but with multiple operations. |
-| **ClawsClient: post_json method** | Current ClawsClient only has `get` and `post_file`. Gmail skill needs to POST JSON bodies (for send). | LOW | ~15 lines following existing error-handling pattern. |
-| **ClawsClient: get with query params** | Current `get()` takes only a path. Gmail search needs query parameters passed to the server. | LOW | Add `**params` to existing `get()`, pass as `params=` to httpx. |
+| `--as user@domain.com` flag on all Google skills | Multiple agents need separate Workspace identities; the entire point of this milestone | LOW | argparse parent parser or per-skill addition; threads through to auth server |
+| Auth server accepts `subject` field on POST /token | Domain-wide delegation supports per-request subject via `with_subject()`; current server hardcodes `GOOGLE_DELEGATED_USER` at startup | LOW | Add optional `subject` to `TokenRequest` Pydantic model; use `base_creds.with_subject(subject)` before `with_scopes()` |
+| Default subject when `--as` omitted | Existing skills must keep working without `--as`; backward compatibility is non-negotiable | LOW | Fall back to `GOOGLE_DELEGATED_USER` env var (already set) when no subject in request |
+| Token cache keyed by (subject, scopes) | Different subjects produce different tokens; current cache uses only scopes as key | LOW | Change cache key from `frozenset(scopes)` to `(subject, frozenset(scopes))` |
+| Gmail updated to pass `--as` through | Existing skill becomes multi-agent aware | LOW | Thread `--as` value through `get_access_token(subject=args.as_user)` to auth server POST body |
+| Calendar updated to pass `--as` through | Same pattern as Gmail | LOW | Identical change across all subcommands |
+
+#### Google Drive Skill
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| `claws drive list` -- list files | Basic file browsing; equivalent to Gmail inbox | LOW | `GET /drive/v3/files` with `fields=files(id,name,mimeType,modifiedTime,size,parents)`, `pageSize`, optional `q` |
+| `claws drive list --query` search support | Agents need to find specific files; Drive API supports rich `q` syntax (`name contains 'report'`, `mimeType='...'`) | LOW | Pass `--query` value directly to `q` param on files.list |
+| `claws drive download <fileId>` | Agents need file content for analysis/processing | MEDIUM | `GET /drive/v3/files/{id}?alt=media` for binary files; write to temp file, return path in JSON |
+| Google Docs/Sheets/Slides export on download | Google-native files cannot be downloaded with `alt=media`; agent will hit these immediately | MEDIUM | Detect `application/vnd.google-apps.*` mimeType, use `files.export` endpoint; export doc->text/plain, sheet->text/csv, slides->application/pdf |
+| `claws drive upload --name <name> <filepath>` | Agents need to save outputs (reports, generated files) to Drive | MEDIUM | Multipart upload via `POST /upload/drive/v3/files?uploadType=multipart`; metadata + file content in single request |
+| `--as` flag on all drive subcommands | Consistent with other Google skills | LOW | Same pattern as gmail/calendar |
+| JSON output via `result()` | Consistent with all existing skills; agent parses stdout JSON | LOW | Already established pattern |
+| Error handling via `handle_drive_error()` | Consistent with `handle_gmail_error()` and `handle_calendar_error()` | LOW | Same HTTP status code translation pattern |
 
 ### Differentiators (Competitive Advantage)
 
-Features that make this agent Gmail integration notably better than the bare minimum.
+Features that make the skill more useful than bare minimum, worth building if low-cost.
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| **Auth server: multi-scope token support** | Request tokens with different scope sets (gmail.readonly vs gmail.send vs gmail.modify). Future skills (Calendar, Drive) get auth for free with zero new server code. | LOW | Scope list comes from query param on token request. Server signs JWT with requested scopes. Already decided as "open token model" in PROJECT.md. |
-| **Gmail: thread view** | Agents often need conversation context, not isolated messages. Thread grouping gives coherent email history. | LOW | `GET .../threads/{id}` returns all messages in a thread. Minimal extra work since message parsing already exists. |
-| **Gmail: attachment metadata** | Agent can see what attachments exist without downloading them. Useful for triage ("you got a PDF from X"). | LOW | Attachment metadata already present in message payload parts. Just surface `filename`, `mimeType`, `size` fields during payload flattening. |
-| **Gmail: label filtering** | Filter by label (INBOX, SENT, STARRED, custom labels). More precise than search query alone. | LOW | `labelIds` parameter on messages.list. Simple pass-through. |
-| **Gmail: reply-to support** | Maintain email thread continuity by setting `In-Reply-To` and `References` headers when sending. | MEDIUM | Requires fetching the original message's `Message-ID` header, then setting reply headers in the outgoing MIME message. Agent sends `--reply-to <message_id>`. |
+| `--folder <folderId>` filter on list | Agents navigating folder hierarchies need scoped listing | LOW | Add `'<folderId>' in parents` to `q` parameter |
+| `--mime-type` filter on list | Agent looking for specific file types (spreadsheets, docs, PDFs) | LOW | Add `mimeType='...'` to `q` parameter |
+| Upload to specific folder via `--folder` | Agents need to organize outputs, not dump everything in root | LOW | Set `parents: [folderId]` in file metadata on create |
+| `claws drive info <fileId>` | Get file metadata without downloading content (size, owner, modified time, sharing) | LOW | `GET /drive/v3/files/{id}` with metadata fields, no `alt=media` |
+| Shared argparse parent for `--as` | DRY: define `--as` once, reuse across gmail/calendar/drive parsers | LOW | `argparse.ArgumentParser(add_help=False)` with just `--as`; each skill uses `parents=[as_parser]` |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| **OAuth2 web flow (3-legged)** | "More standard" auth | Requires browser interaction, refresh token storage, token rotation. Service account + delegation is set-once, no user interaction, no expiring refresh tokens. | Domain-wide delegation. One-time admin console setup, then fully automated forever. |
-| **google-api-python-client dependency** | "Official" Google library | Pulls in google-auth, google-auth-httplib2, uritemplate, and httplib2 -- a parallel HTTP stack alongside httpx. Heavy, unnecessary when you only need 4 REST endpoints. | Direct REST calls via httpx. JWT signing needs only PyJWT + cryptography. Gmail API is simple REST with Bearer tokens. Matches existing "thin wrapper" pattern. |
-| **Attachment download** | Agent might want to "read" attachments | Large binary downloads through the server proxy are slow, and the agent cannot meaningfully process most attachment types (PDFs, images) without additional tools. Opens door to memory/storage issues. | List attachment metadata only. Download can be added per-type when a consuming skill exists (e.g., a future PDF-reader claw). |
-| **Email deletion** | Agent could clean up inbox | Destructive, irreversible operation. Gmail's `DELETE` is permanent (bypasses trash). An AI agent deleting emails is a trust/safety risk. | Use trash (recoverable) if needed at all, but even trash should be deferred until trust is established with the agent. |
-| **Draft management** | Agent could prepare emails for human review | Adds significant complexity (create, update, list, send drafts -- 4 new endpoints). For an autonomous agent, direct send is the right pattern. Drafts add a human-in-the-loop step that does not fit this architecture. | Direct send. If human review is needed, that is a higher-level agent concern, not a skill concern. |
-| **Per-skill scope enforcement on auth server** | Security best practice | Over-engineering for a single-user, internal-network-only system. Adds ACL management, skill identity verification, config complexity. | Open token model (any skill requests any scope). Already decided in PROJECT.md. Revisit only if the system ever serves multiple users or untrusted skills. |
-| **Real-time push notifications (Gmail watch)** | Know about new emails instantly | Requires a public webhook URL (impossible from a Mac mini behind NAT without tunneling), or Pub/Sub subscription (Google Cloud overhead). | Agent calls `claws gmail inbox` when it wants to check email. On-demand, not push. The agent decides when to look. |
-| **HTML email rendering** | Show rich email content | Agent processes text, not HTML. Extracting text/plain is sufficient. HTML parsing adds complexity (sanitization, link extraction) for minimal agent value. | Return text/plain body. Include snippet (first ~200 chars) from Gmail API as fallback when text/plain part is missing. |
+| Resumable upload | "What about large files?" | Adds significant complexity (session URIs, chunk tracking, retry logic); agent-generated files are small (reports, text, configs) | Simple multipart upload handles files up to 5MB easily; revisit only if agents produce large files |
+| Streaming download to stdout | "Pipe file content directly" | Binary files corrupt terminals; large files exhaust memory; breaks JSON output contract | Download to temp file, return file path in JSON; agent reads file separately |
+| Watch/push notifications | "Real-time file changes" | Requires webhook endpoint, long-lived connections; agent polls on demand | Agent calls `claws drive list` when it needs to check for changes |
+| Shared drive support | "We use shared drives" | `supportsAllDrives=true` adds edge cases; shared drives have different permission model | Start with My Drive only; add `--shared` flag in future milestone |
+| Move/copy/rename operations | "Full file management" | Scope creep; each operation is a separate API pattern; agents rarely need these | Can be added in a future milestone via files.update with addParents/removeParents |
+| Folder creation | "Organize files" | Agents don't typically create folder hierarchies; adds complexity | Upload to existing folders via `--folder`; manual folder creation sufficient |
+| Per-skill scope enforcement on auth server | "Drive skill shouldn't request gmail scopes" | Already decided out of scope in PROJECT.md; internal-only network; adds auth server complexity | Open token model -- any skill requests any scope |
+| Agent identity registry/validation | "Validate --as email against a list of known agents" | Over-engineering; delegation itself validates -- Google rejects invalid subjects | Let Google's delegation validation handle it; auth server returns clear error on 403 |
+| Centralized `--as` middleware in auth server | "Auth server should enforce which agent is calling" | Skills run in container, auth server on host; no caller identity available on internal HTTP | Each skill passes `--as` through; simplest path |
 
 ## Feature Dependencies
 
 ```
-[ClawsClient enhancements (post_json, get with params)]
-    └──required by──> [Gmail skill CLI]
+Auth server subject field (POST /token accepts optional subject)
+    |
+    +--requires--> TokenRequest model change (add optional subject: str)
+    +--requires--> Token cache key update (include subject in key)
+    +--requires--> Credential delegation logic (with_subject before with_scopes)
+    |
+    +--enables--> --as flag on Gmail
+    +--enables--> --as flag on Calendar
+    +--enables--> --as flag on Drive
 
-[Auth server (token serving + delegation + caching)]
-    └──required by──> [Gmail server (needs Bearer tokens for every API call)]
-                          └──required by──> [Gmail skill CLI]
+Drive list
+    +--requires--> Auth server (token with drive scope)
+    +--requires--> Drive API client module (new: drive.py)
 
-[Auth server: launchd plist]
-    └──requires──> [Auth server working correctly]
+Drive download
+    +--requires--> Drive list (need fileIds + mimeType to know export vs download)
+    +--enhances--> Google Docs export (handles native doc types)
 
-[Gmail server: read message]
-    └──requires──> [Gmail server: list messages (need message IDs)]
-    └──requires──> [Gmail server: structured output (MIME flattening)]
+Drive upload
+    +--requires--> Auth server (token with drive write scope)
+    +--independent-of--> Drive download
 
-[Gmail server: structured output]
-    └──required by──> [Gmail server: read message]
-    └──required by──> [Gmail server: list messages (header extraction)]
-
-[Gmail server: search]
-    └──enhances──> [Gmail server: list messages (same endpoint, adds q param)]
-
-[Gmail server: send]
-    └──independent of read (requires auth server + MIME construction)]
-    └──requires──> [ClawsClient.post_json]
-
-[Gmail: thread view]
-    └──enhances──> [Gmail: read message]
-    └──requires──> [Gmail server: structured output (reuse MIME flattening)]
-
-[Auth server: multi-scope support]
-    └──enables──> [Future Google skills (Calendar v1.2, Drive)]
+--as flag on existing skills (Gmail, Calendar)
+    +--requires--> Auth server subject field
+    +--independent-of--> Drive skill
 ```
 
 ### Dependency Notes
 
-- **Auth server must exist before Gmail server:** Gmail server requests tokens from auth server on every outbound Gmail API call. Auth server is the foundation layer.
-- **ClawsClient enhancements before Gmail skill:** The skill CLI needs `post_json` (for send) and parameterized `get` (for search/list). Small additions to existing `claws-common` code.
-- **Structured output is cross-cutting:** Transforming Gmail's nested MIME payload into clean JSON is needed by both list (header extraction) and read (body extraction). Build this into the Gmail server from the start, not as an afterthought.
-- **Multi-scope auth enables future skills:** Building the auth server with scope flexibility means Calendar (v1.2) and Drive skills get authentication for free -- just different scope strings.
+- **Auth server subject field is the foundation**: All `--as` features depend on the auth server accepting a per-request subject. Must be built first.
+- **Drive skill and `--as` updates are independent**: They can be built in parallel after auth server changes. Both depend on auth server but not on each other.
+- **Google Docs export enhances download**: Not strictly required for binary file download, but agents will encounter Google-native files immediately. Build together.
+- **Drive scope**: Use `https://www.googleapis.com/auth/drive` (full access). Single scope for all operations, matching the gmail approach (`gmail.modify` covers read + write). The scope must be authorized in Workspace Admin's domain-wide delegation settings.
 
 ## MVP Definition
 
-### Launch With (v1.1)
+### Launch With (v1.3)
 
-Minimum to make Gmail useful as an agent tool.
+- [ ] Auth server accepts optional `subject` in POST /token body
+- [ ] Token cache keyed by `(subject, scopes)` tuple
+- [ ] Default to `GOOGLE_DELEGATED_USER` when no subject provided
+- [ ] `--as user@domain.com` on Gmail (all subcommands)
+- [ ] `--as user@domain.com` on Calendar (all subcommands)
+- [ ] `claws drive list` with optional `--query` and `--max`
+- [ ] `claws drive download <fileId>` with auto-export for Google Docs
+- [ ] `claws drive upload --name <name> <filepath>`
+- [ ] `--as user@domain.com` on Drive (all subcommands)
+- [ ] Structured JSON output, error handling, tests
 
-- [ ] Auth server with service account + domain-wide delegation -- foundation for all Google API access
-- [ ] Auth server token caching + health endpoint -- operational basics
-- [ ] Auth server launchd plist -- auto-start on reboot
-- [ ] Gmail server proxying list + get + send to Gmail REST API -- core email operations
-- [ ] Gmail server search pass-through (q parameter) -- agent needs to find specific emails
-- [ ] Gmail server structured output (flatten MIME payloads to clean JSON) -- agent needs parseable responses
-- [ ] Gmail CLI skill: `claws gmail inbox`, `read <id>`, `send --to --subject --body`, `search <query>` -- the agent-facing interface
-- [ ] ClawsClient.post_json and get-with-params enhancements -- required by Gmail skill
-- [ ] Auth server multi-scope support -- trivial to add now, enables Calendar later
+### Add After Validation (v1.3.x)
 
-### Add After Validation (v1.1.x)
-
-Features to add once core Gmail works end-to-end.
-
-- [ ] Thread view (`claws gmail thread <id>`) -- add when agent needs conversation context
-- [ ] Attachment metadata in message output -- add when agent asks "what files were attached"
-- [ ] Label filtering on list/search -- add when inbox-only filtering is too limiting
-- [ ] Reply-to support (In-Reply-To + References headers) -- add when agent needs to maintain email threads
-- [ ] Mark as read/unread via modify endpoint -- add when agent manages inbox state
+- [ ] `--folder` filter on list -- when agents start navigating folder trees
+- [ ] `--mime-type` filter on list -- when agents need type-specific searches
+- [ ] Upload to folder via `--folder` -- when agents need organized output
+- [ ] `claws drive info <fileId>` -- when agents need metadata without downloading
 
 ### Future Consideration (v2+)
 
-- [ ] Google Calendar skill (v1.2) -- reuses auth server, different scopes, different REST endpoints
-- [ ] Google Drive skill -- reuses auth server, different scopes
-- [ ] Attachment download -- requires a consuming skill to process attachments
-- [ ] Trash/archive -- defer until agent trust model is established
-- [ ] Batch operations (batch delete, batch modify) -- defer until single-message operations prove limiting
+- [ ] Shared drive support (`--shared` flag) -- when multi-team use cases emerge
+- [ ] Resumable upload -- only if agents produce files > 5MB
+- [ ] Move/copy/rename -- only if agents need file management workflows
+- [ ] Folder creation -- only if automated organization is needed
+- [ ] Download format selection (`--format pdf`) -- when agents need specific export formats
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Auth server (token + delegation + caching) | HIGH | MEDIUM | P1 |
-| Auth server health endpoint | HIGH | LOW | P1 |
-| Auth server launchd plist | HIGH | LOW | P1 |
-| Auth server multi-scope support | HIGH | LOW | P1 |
-| Gmail server: list messages | HIGH | MEDIUM | P1 |
-| Gmail server: read message | HIGH | MEDIUM | P1 |
-| Gmail server: send message | HIGH | MEDIUM | P1 |
-| Gmail server: search (q param) | HIGH | LOW | P1 |
-| Gmail server: structured output | HIGH | MEDIUM | P1 |
-| Gmail CLI: inbox/read/send/search | HIGH | MEDIUM | P1 |
-| ClawsClient enhancements | HIGH | LOW | P1 |
-| Gmail server: launchd plist | HIGH | LOW | P1 |
-| Thread view | MEDIUM | LOW | P2 |
-| Attachment metadata | MEDIUM | LOW | P2 |
-| Reply-to support | MEDIUM | MEDIUM | P2 |
-| Label filtering | LOW | LOW | P2 |
-| Mark read/unread | LOW | LOW | P3 |
+| Auth server subject field | HIGH | LOW | P1 |
+| Token cache key update | HIGH | LOW | P1 |
+| `--as` on Gmail | HIGH | LOW | P1 |
+| `--as` on Calendar | HIGH | LOW | P1 |
+| `claws drive list` | HIGH | LOW | P1 |
+| `claws drive download` | HIGH | MEDIUM | P1 |
+| Google Docs export | MEDIUM | MEDIUM | P1 |
+| `claws drive upload` | HIGH | MEDIUM | P1 |
+| `--as` on Drive | HIGH | LOW | P1 |
+| `--folder` filter | MEDIUM | LOW | P2 |
+| `--mime-type` filter | MEDIUM | LOW | P2 |
+| Upload to folder | MEDIUM | LOW | P2 |
+| `claws drive info` | LOW | LOW | P2 |
+| Shared drives | LOW | MEDIUM | P3 |
+| Resumable upload | LOW | HIGH | P3 |
 
 **Priority key:**
-- P1: Must have for v1.1 launch
-- P2: Should have, add in v1.1.x patches
-- P3: Nice to have, future consideration
+- P1: Must have for v1.3 launch
+- P2: Should have, add when agent usage patterns emerge
+- P3: Nice to have, future milestone
 
-## Gmail API Technical Reference
+## Implementation Patterns (from existing codebase)
 
-Key details that inform implementation complexity.
+The existing Gmail and Calendar skills establish clear patterns. Drive should follow them exactly.
 
-### Authentication Flow (Service Account + Domain-Wide Delegation)
-1. Load service account JSON key file (contains `private_key`, `client_email`, `token_uri`)
-2. Build JWT claims: `{"iss": client_email, "sub": delegated_user_email, "scope": "https://www.googleapis.com/auth/gmail.modify", "aud": "https://oauth2.googleapis.com/token", "iat": now, "exp": now+3600}`
-3. Sign JWT with RS256 using the service account's RSA private key
-4. POST to `https://oauth2.googleapis.com/token` with `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=<signed_jwt>`
-5. Response: `{"access_token": "ya29...", "token_type": "Bearer", "expires_in": 3600}`
-6. Cache token, refresh at ~55 min mark
+### Established Pattern: Skill Module Structure
 
-### Gmail API Endpoints Used (v1.1 scope)
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/gmail/v1/users/me/messages` | GET | List messages (with `q`, `maxResults`, `pageToken`, `labelIds`) |
-| `/gmail/v1/users/me/messages/{id}` | GET | Get single message (with `format=full\|metadata\|minimal`) |
-| `/gmail/v1/users/me/messages/send` | POST | Send message (body: `{"raw": base64url_rfc2822}`) |
-| `/gmail/v1/users/me/threads/{id}` | GET | Get thread with all messages (P2) |
+| Component | Gmail Example | Drive Equivalent |
+|-----------|--------------|------------------|
+| API client module | `gmail.py` with `get_access_token()`, `_gmail_get()`, `_gmail_post()` | `drive.py` with `get_access_token()`, `_drive_get()`, `_drive_post()` |
+| CLI module | `cli.py` with argparse subcommands | `cli.py` with list/download/upload subcommands |
+| Error handler | `handle_gmail_error()` translating HTTP status codes | `handle_drive_error()` same pattern |
+| Auth token flow | `ClawsClient.post_json("/token", {"scopes": [SCOPE]})` | Same, with `https://www.googleapis.com/auth/drive` |
+| External API calls | Direct httpx with Bearer token header | Same |
+| Output | `result()` for success, `fail()`/`crash()` for errors | Same |
+| Scope strategy | Single broad scope (`gmail.modify`) | Single broad scope (`drive`) |
 
-### Required OAuth Scopes
-| Scope | Grants | When to use |
-|-------|--------|-------------|
-| `gmail.readonly` | Read messages, threads, labels | Read-only access |
-| `gmail.send` | Send email only | Send-only access |
-| `gmail.modify` | Read + send + modify labels | Full access (superset, simplest) |
+### Auth Server Change: Adding Subject Support
 
-### MIME Payload Parsing Complexity
-Gmail's `format=full` returns nested structures that need flattening:
-- `payload.headers[]` -- array of `{name, value}` for From, To, Subject, Date
-- `payload.body.data` -- base64url body (simple single-part messages)
-- `payload.parts[]` -- array of parts for multipart, each with its own `body.data` and possibly nested `parts[]`
-- Text extraction: walk parts tree, find `mimeType: "text/plain"`, decode `body.data` from base64url
-- Fallback: if no text/plain, use `snippet` field (~200 chars, always present)
+Current token request flow:
+```python
+# In gmail.py / calendar.py
+def get_access_token() -> str:
+    client = ClawsClient(service="google-auth", port=8301)
+    resp = client.post_json("/token", {"scopes": [SCOPE]})
+    return resp["access_token"]
+```
 
-### Gmail Search Query Syntax (q parameter)
-| Operator | Example | Notes |
-|----------|---------|-------|
-| `from:` | `from:boss@company.com` | Filter by sender |
-| `to:` | `to:me` | Filter by recipient |
-| `subject:` | `subject:meeting` | Filter by subject |
-| `after:` / `before:` | `after:2024/01/01` | Date range |
-| `has:attachment` | `has:attachment` | Messages with attachments |
-| `is:unread` | `is:unread` | Unread messages |
-| `in:` | `in:inbox` / `in:sent` | By mailbox/label |
-| `OR` | `from:a OR from:b` | Boolean OR (default is AND) |
+After `--as` support:
+```python
+def get_access_token(subject: str | None = None) -> str:
+    client = ClawsClient(service="google-auth", port=8301)
+    body: dict = {"scopes": [SCOPE]}
+    if subject:
+        body["subject"] = subject
+    resp = client.post_json("/token", body)
+    return resp["access_token"]
+```
+
+Auth server change (in app.py):
+```python
+class TokenRequest(BaseModel):
+    scopes: list[str]
+    subject: str | None = None  # Optional per-request impersonation
+
+# In get_token():
+subject = req.subject or app.state.delegated_user
+cache_key = (subject, frozenset(req.scopes))
+creds = app.state.base_creds.with_subject(subject).with_scopes(list(req.scopes))
+```
+
+### Drive-Specific Technical Details
+
+| Concern | Approach |
+|---------|----------|
+| Download binary files | `GET /drive/v3/files/{id}?alt=media`, write to temp file, return `{"path": "/tmp/...", "name": "...", "size": ...}` |
+| Google Docs export | Detect `application/vnd.google-apps.document` etc., use `GET /drive/v3/files/{id}/export?mimeType=text/plain` |
+| Export format mapping | `document->text/plain`, `spreadsheet->text/csv`, `presentation->application/pdf`, `drawing->image/png` |
+| Upload | `POST /upload/drive/v3/files?uploadType=multipart` with `Content-Type: multipart/related`; first part is JSON metadata, second is file content |
+| Drive scope | `https://www.googleapis.com/auth/drive` -- full access for list + download + upload |
+| Metadata base URL | `https://www.googleapis.com/drive/v3` |
+| Upload base URL | `https://www.googleapis.com/upload/drive/v3` |
+| List fields | `fields=files(id,name,mimeType,modifiedTime,size,parents)` to avoid huge response payloads |
+| Search syntax | `q` param: `name contains 'report'`, `mimeType='application/pdf'`, `'<folderId>' in parents`, `modifiedTime > '2026-01-01T00:00:00'` |
 
 ## Sources
 
-- [Google OAuth2 Service Account Flow](https://developers.google.com/identity/protocols/oauth2/service-account) -- JWT assertion details, sub claim for delegation (HIGH confidence)
-- [Gmail API REST Reference](https://developers.google.com/workspace/gmail/api/reference/rest) -- all endpoints, formats, parameters (HIGH confidence)
-- [Gmail API Search/Filter Guide](https://developers.google.com/workspace/gmail/api/guides/filtering) -- q parameter syntax (HIGH confidence)
-- [Gmail Message Format Reference](https://developers.google.com/workspace/gmail/api/reference/rest/v1/Format) -- raw vs full vs metadata (HIGH confidence)
-- [Domain-Wide Delegation Best Practices](https://support.google.com/a/answer/14437356?hl=en) -- Google's official guidance (HIGH confidence)
-- [Domain-Wide Delegation Setup](https://support.google.com/a/answer/162106?hl=en) -- Admin console configuration steps (HIGH confidence)
+- [Google Drive API v3 files.list](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list) -- parameters, response format, scopes (HIGH confidence)
+- [Google Drive API v3 files.get](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/get) -- download with alt=media, Google Docs limitation (HIGH confidence)
+- [Google Drive API v3 files.create](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/create) -- upload types, multipart, max file size (HIGH confidence)
+- [Google OAuth2 Service Account Flow](https://developers.google.com/identity/protocols/oauth2/service-account) -- subject/sub field, with_subject() for impersonation (HIGH confidence)
+- [Domain-Wide Delegation Best Practices](https://support.google.com/a/answer/14437356?hl=en) -- per-request impersonation guidance (HIGH confidence)
+- [Control API Access with Domain-Wide Delegation](https://support.google.com/a/answer/162106?hl=en) -- scope authorization in Workspace Admin (HIGH confidence)
 
 ---
-*Feature research for: Google auth server + Gmail CLI skill (v1.1 milestone)*
-*Researched: 2026-03-19*
+*Feature research for: Multi-agent identity + Google Drive CLI skill (v1.3 milestone)*
+*Researched: 2026-03-21*
