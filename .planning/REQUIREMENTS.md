@@ -1,7 +1,7 @@
 # Requirements: Lobster Claws
 
 **Defined:** 2026-03-21
-**Core Value:** Every skill follows the same pattern: thin CLI in container → HTTP call to host server → stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
+**Core Value:** Every skill follows the same pattern: thin CLI in container -> HTTP call to host server -> stdout result. Adding a new capability means adding a new claw + server pair, nothing else changes.
 
 ## v1.3 Requirements
 
@@ -54,22 +54,22 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ID-01 | — | Pending |
-| ID-02 | — | Pending |
-| ID-03 | — | Pending |
-| ID-04 | — | Pending |
-| ID-05 | — | Pending |
-| DRV-01 | — | Pending |
-| DRV-02 | — | Pending |
-| DRV-03 | — | Pending |
-| DRV-04 | — | Pending |
-| DRV-05 | — | Pending |
+| ID-01 | Phase 8 | Pending |
+| ID-02 | Phase 8 | Pending |
+| ID-03 | Phase 8 | Pending |
+| ID-04 | Phase 8 | Pending |
+| ID-05 | Phase 8 | Pending |
+| DRV-01 | Phase 9 | Pending |
+| DRV-02 | Phase 9 | Pending |
+| DRV-03 | Phase 9 | Pending |
+| DRV-04 | Phase 9 | Pending |
+| DRV-05 | Phase 9 | Pending |
 
 **Coverage:**
 - v1.3 requirements: 10 total
-- Mapped to phases: 0
-- Unmapped: 10 ⚠️
+- Mapped to phases: 10
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-21*
-*Last updated: 2026-03-21 after initial definition*
+*Last updated: 2026-03-21 after roadmap creation*

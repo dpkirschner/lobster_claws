@@ -5,6 +5,7 @@
 - v1.0 MVP - Phases 1-3 (shipped 2026-03-18)
 - v1.1 Google Integration + Gmail - Phases 4-5 (shipped 2026-03-20)
 - v1.2 Google Calendar - Phases 6-7 (shipped 2026-03-21)
+- v1.3 Multi-Agent Identity + Google Drive - Phases 8-9 (in progress)
 
 ## Phases
 
@@ -39,6 +40,45 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 </details>
 
+### v1.3 Multi-Agent Identity + Google Drive (Phases 8-9)
+
+- [ ] **Phase 8: Multi-Agent Identity** - Auth server per-request subject support and --as flag on Gmail and Calendar
+- [ ] **Phase 9: Google Drive Skill** - List, download, and upload files via Google Drive REST API with --as support
+
+## Phase Details
+
+### Phase 8: Multi-Agent Identity
+**Goal**: Any agent can act as a specific Google Workspace user by passing `--as user@domain.com` to existing skills
+**Depends on**: Phase 7
+**Requirements**: ID-01, ID-02, ID-03, ID-04, ID-05
+**Success Criteria** (what must be TRUE):
+  1. Auth server accepts `POST /token` with optional `subject` field and returns a token scoped to that user
+  2. Auth server returns tokens for the default delegated user when no `subject` is provided (backward compatible)
+  3. Two requests with the same scopes but different subjects receive different cached tokens (no cross-agent collision)
+  4. User can run `claws gmail inbox --as alice@domain.com` and see Alice's inbox
+  5. User can run `claws calendar list --as bob@domain.com` and see Bob's calendar
+**Plans**: TBD
+
+Plans:
+- [ ] 08-01: TBD
+- [ ] 08-02: TBD
+
+### Phase 9: Google Drive Skill
+**Goal**: Agent can browse, download, and upload files in any user's Google Drive
+**Depends on**: Phase 8
+**Requirements**: DRV-01, DRV-02, DRV-03, DRV-04, DRV-05
+**Success Criteria** (what must be TRUE):
+  1. User can run `claws drive list` and see files with name, type, size, and modified date as structured JSON
+  2. User can run `claws drive download <fileId>` to save a binary file to disk, and Google Workspace documents are automatically exported
+  3. User can run `claws drive upload --name report.txt ./report.txt` to upload a file to Google Drive
+  4. User can run `claws drive list --as user@domain.com` to browse another user's Drive
+  5. `claws drive` appears in `claws` skill listing via entry-point discovery
+**Plans**: TBD
+
+Plans:
+- [ ] 09-01: TBD
+- [ ] 09-02: TBD
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -50,3 +90,5 @@ Decimal phases appear between their surrounding integers in numeric order.
 | 5. Gmail Skill | v1.1 | 2/2 | Complete | 2026-03-20 |
 | 6. Calendar Read Operations | v1.2 | 2/2 | Complete | 2026-03-20 |
 | 7. Calendar Write Operations | v1.2 | 2/2 | Complete | 2026-03-20 |
+| 8. Multi-Agent Identity | v1.3 | 0/? | Not started | - |
+| 9. Google Drive Skill | v1.3 | 0/? | Not started | - |
