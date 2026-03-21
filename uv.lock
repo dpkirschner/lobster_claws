@@ -7,6 +7,7 @@ members = [
     "claws-calendar",
     "claws-cli",
     "claws-common",
+    "claws-drive",
     "claws-gmail",
     "claws-transcribe",
     "google-auth-server",
@@ -210,6 +211,17 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "httpx", specifier = ">=0.28" }]
+
+[[package]]
+name = "claws-drive"
+version = "0.1.0"
+source = { editable = "skills/drive" }
+dependencies = [
+    { name = "claws-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "claws-common", editable = "common" }]
 
 [[package]]
 name = "claws-gmail"
@@ -545,6 +557,7 @@ dev = [
     { name = "claws-calendar" },
     { name = "claws-cli" },
     { name = "claws-common" },
+    { name = "claws-drive" },
     { name = "claws-gmail" },
     { name = "claws-transcribe" },
     { name = "google-auth-server" },
@@ -561,6 +574,7 @@ dev = [
     { name = "claws-calendar", editable = "skills/calendar" },
     { name = "claws-cli", editable = "cli" },
     { name = "claws-common", editable = "common" },
+    { name = "claws-drive", editable = "skills/drive" },
     { name = "claws-gmail", editable = "skills/gmail" },
     { name = "claws-transcribe", editable = "skills/transcribe" },
     { name = "google-auth-server", editable = "servers/google-auth" },
