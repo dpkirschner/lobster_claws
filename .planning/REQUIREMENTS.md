@@ -21,7 +21,7 @@ Requirements for Multi-Agent Identity + Google Drive milestone. Each maps to roa
 - [x] **DRV-02**: User can download a file by ID (binary files via alt=media, Google Docs via export)
 - [x] **DRV-03**: User can upload a file to Google Drive via multipart/related upload
 - [x] **DRV-04**: Drive skill outputs structured JSON via stdout using claws_common.output
-- [ ] **DRV-05**: Drive CLI registered as `claws drive` with `--as` flag via entry-point discovery
+- [x] **DRV-05**: Drive CLI registered as `claws drive` with `--as` flag via entry-point discovery
 
 ## Future Requirements
 
@@ -63,7 +63,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DRV-02 | Phase 9 | Complete |
 | DRV-03 | Phase 9 | Complete |
 | DRV-04 | Phase 9 | Complete |
-| DRV-05 | Phase 9 | Pending |
+| DRV-05 | Phase 9 | Complete |
 
 **Coverage:**
 - v1.3 requirements: 10 total
