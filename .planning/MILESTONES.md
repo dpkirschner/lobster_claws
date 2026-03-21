@@ -1,5 +1,19 @@
 # Milestones
 
+## v1.2 Google Calendar (Shipped: 2026-03-21)
+
+**Phases completed:** 2 phases, 4 plans, 12 commits, ~1,700 LOC Python in calendar package
+
+**Key accomplishments:**
+
+- Calendar API module with list_events, get_event (read operations with date range support, all-day event handling)
+- Calendar write operations: create_event with timed + all-day support, update_event with partial updates, delete_event
+- `claws calendar` CLI with 5 subcommands: list (--today/--week/--from/--to/--max), get, create, update, delete
+- Reused existing Google auth server on port 8301 — zero auth changes needed, just different scope
+- 51 calendar-specific tests (31 API + 20 CLI), 151 total workspace tests
+
+---
+
 ## v1.1 Google Integration + Gmail (Shipped: 2026-03-20)
 
 **Phases completed:** 2 phases, 5 plans, 17 commits, ~520 LOC Python added

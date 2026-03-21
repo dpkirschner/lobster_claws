@@ -39,15 +39,6 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 (None — v1.2 milestone complete)
 
-## Current Milestone: v1.2 Google Calendar
-
-**Goal:** Add a Google Calendar skill using the existing auth server, giving the agent full CRUD access to manage calendar events.
-
-**Target features:**
-- Calendar skill — list events by time range, get event details, create/update/delete events
-- Same two-tier HTTP pattern as Gmail (auth server for tokens, direct Calendar API calls)
-- No auth server changes needed — just request calendar scopes
-
 ### Out of Scope
 
 - Docker image build changes — skills install via pip, Dockerfile modifications are the OpenClaw repo's concern
@@ -58,9 +49,11 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 ## Context
 
-- **Shipped v1.1** with ~1,424 lines of Python across 6 packages (claws-common, claws-cli, claws-transcribe, claws-gmail, whisper-server, google-auth-server)
+- **Shipped v1.2** with ~3,100 lines of Python across 7 packages (claws-common, claws-cli, claws-transcribe, claws-gmail, claws-calendar, whisper-server, google-auth-server)
 - **Tech stack**: uv workspaces, hatchling build backend, httpx, FastAPI, mlx-whisper, google-auth, argparse
 - **151 tests** passing across all packages
+- **3 skills**: transcribe, gmail (read/send/search), calendar (list/get/create/update/delete)
+- **2 servers**: whisper (port 8300), google-auth (port 8301)
 - **OpenClaw** is an AI agent platform running in Docker (`node:24-bookworm`). The container has Python 3 + pip but no GPU.
 - **Host** is an Apple Silicon Mac mini running macOS with Metal/Neural Engine access for ML inference.
 - **Networking**: Container reaches host via `host.docker.internal` with `OPENCLAW_TOOLS_HOST` env var override.
@@ -96,4 +89,4 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 | Full URL scopes (no short aliases) | No mapping table needed, matches Google docs exactly | ✓ Good |
 
 ---
-*Last updated: 2026-03-20 after v1.2 milestone start*
+*Last updated: 2026-03-21 after v1.2 milestone shipped*
