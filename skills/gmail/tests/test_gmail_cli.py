@@ -21,7 +21,7 @@ def test_inbox_default(monkeypatch):
         from claws_gmail.cli import main
 
         main()
-        mock_list.assert_called_once_with(max_results=10)
+        mock_list.assert_called_once_with(max_results=10, as_user=None)
         mock_result.assert_called_once_with({"messages": mock_messages, "result_count": 1})
 
 
@@ -36,7 +36,7 @@ def test_inbox_max(monkeypatch):
         from claws_gmail.cli import main
 
         main()
-        mock_list.assert_called_once_with(max_results=5)
+        mock_list.assert_called_once_with(max_results=5, as_user=None)
 
 
 # --- read ---
@@ -54,7 +54,7 @@ def test_read(monkeypatch):
         from claws_gmail.cli import main
 
         main()
-        mock_read.assert_called_once_with("abc")
+        mock_read.assert_called_once_with("abc", as_user=None)
         mock_result.assert_called_once_with(msg)
 
 
@@ -77,7 +77,7 @@ def test_send_with_body_flag(monkeypatch):
 
         main()
         mock_send.assert_called_once_with(
-            to="bob@example.com", subject="Hi", body="Hello", cc=None, bcc=None
+            to="bob@example.com", subject="Hi", body="Hello", cc=None, bcc=None, as_user=None
         )
         mock_result.assert_called_once_with(resp)
 
@@ -110,7 +110,7 @@ def test_send_with_cc_bcc(monkeypatch):
 
         main()
         mock_send.assert_called_once_with(
-            to="bob@example.com", subject="Hi", body="Hello", cc="cc@x.com", bcc="bcc@x.com"
+            to="bob@example.com", subject="Hi", body="Hello", cc="cc@x.com", bcc="bcc@x.com", as_user=None
         )
 
 
@@ -139,6 +139,7 @@ def test_send_stdin_fallback(monkeypatch):
             body="Body from stdin",
             cc=None,
             bcc=None,
+            as_user=None,
         )
 
 
@@ -240,7 +241,7 @@ def test_search(monkeypatch):
         from claws_gmail.cli import main
 
         main()
-        mock_search.assert_called_once_with(query="from:alice", max_results=10)
+        mock_search.assert_called_once_with(query="from:alice", max_results=10, as_user=None)
         mock_result.assert_called_once_with({"messages": msgs, "result_count": 2})
 
 
@@ -255,7 +256,7 @@ def test_search_max(monkeypatch):
         from claws_gmail.cli import main
 
         main()
-        mock_search.assert_called_once_with(query="from:alice", max_results=20)
+        mock_search.assert_called_once_with(query="from:alice", max_results=20, as_user=None)
 
 
 # --- error handling ---

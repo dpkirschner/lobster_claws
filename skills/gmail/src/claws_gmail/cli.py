@@ -22,6 +22,8 @@ def main():
         prog="claws-gmail",
         description="Gmail skill for reading, sending, and searching email",
     )
+    parser.add_argument("--as", dest="as_user",
+                        help="Act as this Google Workspace user (email)")
     subs = parser.add_subparsers(dest="command", required=True)
 
     # inbox
@@ -55,11 +57,11 @@ def main():
 
     try:
         if args.command == "inbox":
-            messages = list_inbox(max_results=args.max)
+            messages = list_inbox(max_results=args.max, as_user=args.as_user)
             result({"messages": messages, "result_count": len(messages)})
 
         elif args.command == "read":
-            msg = read_message(args.id)
+            msg = read_message(args.id, as_user=args.as_user)
             result(msg)
 
         elif args.command == "send":
@@ -74,11 +76,12 @@ def main():
                 body=body,
                 cc=args.cc,
                 bcc=args.bcc,
+                as_user=args.as_user,
             )
             result(resp)
 
         elif args.command == "search":
-            messages = search_messages(query=args.query, max_results=args.max)
+            messages = search_messages(query=args.query, max_results=args.max, as_user=args.as_user)
             result({"messages": messages, "result_count": len(messages)})
 
     except httpx.HTTPStatusError as e:

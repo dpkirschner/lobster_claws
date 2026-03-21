@@ -17,10 +17,13 @@ GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
 
-def get_access_token() -> str:
+def get_access_token(as_user: str | None = None) -> str:
     """Get Gmail access token from auth server."""
     client = ClawsClient(service="google-auth", port=8301)
-    resp = client.post_json("/token", {"scopes": [GMAIL_SCOPE]})
+    body: dict = {"scopes": [GMAIL_SCOPE]}
+    if as_user:
+        body["subject"] = as_user
+    resp = client.post_json("/token", body)
     return resp["access_token"]
 
 
@@ -132,12 +135,12 @@ def _fetch_message_metadata(msg_id: str, token: str) -> dict:
     }
 
 
-def list_inbox(max_results: int = 10) -> list[dict]:
+def list_inbox(max_results: int = 10, as_user: str | None = None) -> list[dict]:
     """List inbox messages with metadata.
 
     Two-step fetch: get message IDs, then metadata for each.
     """
-    token = get_access_token()
+    token = get_access_token(as_user=as_user)
     data = _gmail_get(
         "/messages",
         token,
@@ -151,9 +154,9 @@ def list_inbox(max_results: int = 10) -> list[dict]:
     return messages
 
 
-def read_message(msg_id: str) -> dict:
+def read_message(msg_id: str, as_user: str | None = None) -> dict:
     """Read a message with full body extracted from MIME payload."""
-    token = get_access_token()
+    token = get_access_token(as_user=as_user)
     data = _gmail_get(f"/messages/{msg_id}", token, params={"format": "full"})
     hdrs = data.get("payload", {}).get("headers", [])
 
@@ -178,12 +181,13 @@ def send_message(
     body: str,
     cc: str | None = None,
     bcc: str | None = None,
+    as_user: str | None = None,
 ) -> dict:
     """Send an email via Gmail API.
 
     Builds RFC 2822 message, base64url encodes it, and POSTs to messages/send.
     """
-    token = get_access_token()
+    token = get_access_token(as_user=as_user)
     raw = build_raw_message(to, subject, body, cc=cc, bcc=bcc)
     resp = _gmail_post("/messages/send", token, {"raw": raw})
     return {
@@ -192,12 +196,12 @@ def send_message(
     }
 
 
-def search_messages(query: str, max_results: int = 10) -> list[dict]:
+def search_messages(query: str, max_results: int = 10, as_user: str | None = None) -> list[dict]:
     """Search messages using Gmail query syntax.
 
     Same two-step fetch pattern as list_inbox.
     """
-    token = get_access_token()
+    token = get_access_token(as_user=as_user)
     data = _gmail_get(
         "/messages",
         token,
