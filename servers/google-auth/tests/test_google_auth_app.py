@@ -106,8 +106,56 @@ def test_token_google_error_retry_failure(app_client, mock_creds):
     assert resp.status_code == 503
 
 
-def test_startup_loads_key(tmp_path):
-    """Lifespan calls Credentials.from_service_account_file with path from env."""
+def test_token_with_subject(app_client, mock_creds):
+    """POST /token with explicit subject uses that subject for delegation."""
+    resp = app_client.post(
+        "/token",
+        json={
+            "scopes": ["https://www.googleapis.com/auth/gmail.readonly"],
+            "subject": "alice@example.com",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["access_token"] == "fake-access-token-123"
+    mock_creds.with_subject.assert_called_with("alice@example.com")
+
+
+def test_token_without_subject_uses_default(app_client, mock_creds):
+    """POST /token without subject falls back to GOOGLE_DELEGATED_USER."""
+    resp = app_client.post(
+        "/token",
+        json={"scopes": ["https://www.googleapis.com/auth/gmail.readonly"]},
+    )
+    assert resp.status_code == 200
+    # The last with_subject call for a token request (not startup) should use default
+    # Find the call that corresponds to the token request
+    subject_calls = mock_creds.with_subject.call_args_list
+    # At least one call should use the default subject "agent@example.com"
+    default_calls = [c for c in subject_calls if c.args[0] == "agent@example.com"]
+    assert len(default_calls) >= 1, f"Expected call with agent@example.com, got {subject_calls}"
+
+
+def test_token_cache_different_subjects(app_client, mock_creds):
+    """Same scopes but different subjects must NOT share cache."""
+    scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
+    app_client.post("/token", json={"scopes": scopes, "subject": "alice@example.com"})
+    app_client.post("/token", json={"scopes": scopes, "subject": "bob@example.com"})
+    # refresh: 1 startup + 1 alice + 1 bob = 3 (different subjects = no cache hit)
+    assert mock_creds.refresh.call_count == 3
+
+
+def test_token_cache_same_subject(app_client, mock_creds):
+    """Same scopes and same subject should use cache on second call."""
+    scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
+    app_client.post("/token", json={"scopes": scopes, "subject": "alice@example.com"})
+    app_client.post("/token", json={"scopes": scopes, "subject": "alice@example.com"})
+    # refresh: 1 startup + 1 alice (first call) = 2 (second call hits cache)
+    assert mock_creds.refresh.call_count == 2
+
+
+def test_startup_stores_subject_free_creds(tmp_path):
+    """Lifespan stores base_creds WITHOUT subject baked in."""
     key_file = tmp_path / "service-account.json"
     key_file.write_text("{}")
 
@@ -134,9 +182,56 @@ def test_startup_loads_key(tmp_path):
 
         importlib.reload(app_module)
         with TestClient(app_module.app):
-            MockCreds.from_service_account_file.assert_called_once_with(
-                str(key_file), subject="test@example.com"
-            )
+            # from_service_account_file should be called with ONLY the key path
+            # (no subject= kwarg)
+            MockCreds.from_service_account_file.assert_called_once_with(str(key_file))
+
+
+def test_startup_stores_default_subject(tmp_path):
+    """Lifespan stores default_subject in app.state from GOOGLE_DELEGATED_USER."""
+    key_file = tmp_path / "service-account.json"
+    key_file.write_text("{}")
+
+    creds = MagicMock()
+    creds.token = "fake-token"
+    creds.expiry = datetime.now(UTC) + timedelta(hours=1)
+    creds.with_scopes.return_value = creds
+    creds.with_subject.return_value = creds
+    creds.refresh.return_value = None
+
+    env = {
+        "GOOGLE_SERVICE_ACCOUNT_KEY": str(key_file),
+        "GOOGLE_DELEGATED_USER": "test@example.com",
+    }
+    with (
+        patch.dict("os.environ", env),
+        patch("google_auth_server.app.service_account.Credentials") as MockCreds,
+        patch("google_auth_server.app.google_auth_transport.Request"),
+    ):
+        MockCreds.from_service_account_file.return_value = creds
+        import importlib
+
+        import google_auth_server.app as app_module
+
+        importlib.reload(app_module)
+        with TestClient(app_module.app) as tc:
+            assert app_module.app.state.default_subject == "test@example.com"
+
+
+def test_token_error_includes_subject(app_client, mock_creds):
+    """Error message from failed token minting includes the subject email."""
+    mock_creds.refresh.reset_mock()
+    mock_creds.refresh.side_effect = [Exception("fail1"), Exception("fail2")]
+
+    resp = app_client.post(
+        "/token",
+        json={
+            "scopes": ["https://www.googleapis.com/auth/drive.readonly"],
+            "subject": "bad@example.com",
+        },
+    )
+    assert resp.status_code == 503
+    assert "bad@example.com" in resp.json()["detail"]
 
 
 def test_default_bind():
