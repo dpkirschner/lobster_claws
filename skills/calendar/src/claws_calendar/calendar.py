@@ -15,10 +15,13 @@ CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
 CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars/primary"
 
 
-def get_access_token() -> str:
+def get_access_token(as_user: str | None = None) -> str:
     """Get Calendar access token from auth server."""
     client = ClawsClient(service="google-auth", port=AUTH_PORT)
-    resp = client.post_json("/token", {"scopes": [CALENDAR_SCOPE]})
+    body: dict = {"scopes": [CALENDAR_SCOPE]}
+    if as_user:
+        body["subject"] = as_user
+    resp = client.post_json("/token", body)
     return resp["access_token"]
 
 
@@ -142,6 +145,7 @@ def list_events(
     time_min: str | None = None,
     time_max: str | None = None,
     max_results: int = 25,
+    as_user: str | None = None,
 ) -> list[dict]:
     """List calendar events.
 
@@ -149,11 +153,12 @@ def list_events(
         time_min: RFC 3339 lower bound for event start time.
         time_max: RFC 3339 upper bound for event start time.
         max_results: Maximum number of events to return (default 25).
+        as_user: Act as this Google Workspace user (email).
 
     Returns:
         List of formatted event summary dicts.
     """
-    token = get_access_token()
+    token = get_access_token(as_user=as_user)
     params: dict = {
         "singleEvents": "true",
         "orderBy": "startTime",
@@ -168,16 +173,17 @@ def list_events(
     return [format_event_summary(e) for e in data.get("items", [])]
 
 
-def get_event(event_id: str) -> dict:
+def get_event(event_id: str, as_user: str | None = None) -> dict:
     """Get full detail for a single calendar event.
 
     Args:
         event_id: The Calendar event ID.
+        as_user: Act as this Google Workspace user (email).
 
     Returns:
         Full event detail dict.
     """
-    token = get_access_token()
+    token = get_access_token(as_user=as_user)
     data = _calendar_get(f"/events/{event_id}", token)
     return format_event_detail(data)
 
@@ -191,6 +197,7 @@ def create_event(
     description: str | None = None,
     attendees: list[str] | None = None,
     all_day: bool = False,
+    as_user: str | None = None,
 ) -> dict:
     """Create a new calendar event.
 
@@ -202,11 +209,12 @@ def create_event(
         description: Optional event description.
         attendees: Optional list of attendee email addresses.
         all_day: If True, use date instead of dateTime for start/end.
+        as_user: Act as this Google Workspace user (email).
 
     Returns:
         Formatted event detail dict.
     """
-    token = get_access_token()
+    token = get_access_token(as_user=as_user)
     body: dict = {"summary": title}
 
     if all_day:
@@ -236,6 +244,7 @@ def update_event(
     location: str | None = None,
     description: str | None = None,
     attendees: list[str] | None = None,
+    as_user: str | None = None,
 ) -> dict:
     """Update an existing calendar event.
 
@@ -249,11 +258,12 @@ def update_event(
         location: New location.
         description: New description.
         attendees: New list of attendee email addresses.
+        as_user: Act as this Google Workspace user (email).
 
     Returns:
         Formatted event detail dict.
     """
-    token = get_access_token()
+    token = get_access_token(as_user=as_user)
     body: dict = {}
 
     if title is not None:
@@ -273,16 +283,17 @@ def update_event(
     return format_event_detail(data)
 
 
-def delete_event(event_id: str) -> dict:
+def delete_event(event_id: str, as_user: str | None = None) -> dict:
     """Delete a calendar event.
 
     Args:
         event_id: The Calendar event ID to delete.
+        as_user: Act as this Google Workspace user (email).
 
     Returns:
         Confirmation dict with deleted=True and event_id.
     """
-    token = get_access_token()
+    token = get_access_token(as_user=as_user)
     _calendar_delete(f"/events/{event_id}", token)
     return {"deleted": True, "event_id": event_id}
 

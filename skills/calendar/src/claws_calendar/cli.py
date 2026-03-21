@@ -51,6 +51,8 @@ def main():
         prog="claws-calendar",
         description="Calendar skill for managing events",
     )
+    parser.add_argument("--as", dest="as_user",
+                        help="Act as this Google Workspace user (email)")
     subs = parser.add_subparsers(dest="command", required=True)
 
     # list
@@ -110,12 +112,13 @@ def main():
         if args.command == "list":
             time_min, time_max = _resolve_date_range(args)
             events = list_events(
-                time_min=time_min, time_max=time_max, max_results=args.max
+                time_min=time_min, time_max=time_max, max_results=args.max,
+                as_user=args.as_user,
             )
             result({"events": events, "result_count": len(events)})
 
         elif args.command == "get":
-            event = get_event(args.id)
+            event = get_event(args.id, as_user=args.as_user)
             result(event)
 
         elif args.command == "create":
@@ -130,6 +133,7 @@ def main():
                     location=args.location,
                     description=args.description,
                     attendees=attendees,
+                    as_user=args.as_user,
                 )
             else:
                 event = create_event(
@@ -139,6 +143,7 @@ def main():
                     location=args.location,
                     description=args.description,
                     attendees=attendees,
+                    as_user=args.as_user,
                 )
             result(event)
 
@@ -152,11 +157,12 @@ def main():
                 location=args.location,
                 description=args.description,
                 attendees=attendees,
+                as_user=args.as_user,
             )
             result(event)
 
         elif args.command == "delete":
-            resp = delete_event(args.id)
+            resp = delete_event(args.id, as_user=args.as_user)
             result(resp)
 
     except httpx.HTTPStatusError as e:

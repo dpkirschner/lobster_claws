@@ -37,6 +37,7 @@ def test_list_default(monkeypatch):
             time_min=f"rfc:{fake_today}:False",
             time_max=f"rfc:{fake_today + timedelta(days=7)}:False",
             max_results=25,
+            as_user=None,
         )
         mock_result.assert_called_once_with(
             {"events": mock_events, "result_count": 1}
@@ -68,6 +69,7 @@ def test_list_today(monkeypatch):
             time_min=f"rfc:{fake_today}:False",
             time_max=f"rfc:{fake_today + timedelta(days=1)}:False",
             max_results=25,
+            as_user=None,
         )
 
 
@@ -100,6 +102,7 @@ def test_list_week(monkeypatch):
             time_min=f"rfc:{monday}:False",
             time_max=f"rfc:{next_monday}:False",
             max_results=25,
+            as_user=None,
         )
 
 
@@ -130,6 +133,7 @@ def test_list_from_to(monkeypatch):
             time_min=f"rfc:{date(2026, 3, 20)}:False",
             time_max=f"rfc:{date(2026, 3, 25)}:True",
             max_results=25,
+            as_user=None,
         )
 
 
@@ -156,6 +160,7 @@ def test_list_from_only(monkeypatch):
             time_min=f"rfc:{date(2026, 3, 20)}:False",
             time_max=None,
             max_results=25,
+            as_user=None,
         )
 
 
@@ -182,6 +187,7 @@ def test_list_to_only(monkeypatch):
             time_min=None,
             time_max=f"rfc:{date(2026, 3, 25)}:True",
             max_results=25,
+            as_user=None,
         )
 
 
@@ -335,7 +341,7 @@ def test_get_event(monkeypatch):
         from claws_calendar.cli import main
 
         main()
-        mock_get.assert_called_once_with("evt-001")
+        mock_get.assert_called_once_with("evt-001", as_user=None)
         mock_result.assert_called_once_with(event)
 
 
@@ -433,6 +439,7 @@ def test_create_minimal(monkeypatch):
             location=None,
             description=None,
             attendees=None,
+            as_user=None,
         )
         mock_result.assert_called_once_with(event)
 
@@ -480,6 +487,7 @@ def test_create_full(monkeypatch):
             location="Room 42",
             description="Weekly sync",
             attendees=["a@b.com", "c@d.com"],
+            as_user=None,
         )
         mock_result.assert_called_once_with(event)
 
@@ -521,6 +529,7 @@ def test_create_all_day(monkeypatch):
             location=None,
             description=None,
             attendees=None,
+            as_user=None,
         )
         mock_result.assert_called_once_with(event)
 
@@ -554,6 +563,7 @@ def test_update_title(monkeypatch):
             location=None,
             description=None,
             attendees=None,
+            as_user=None,
         )
         mock_result.assert_called_once_with(event)
 
@@ -603,6 +613,7 @@ def test_update_multiple_fields(monkeypatch):
             location="Room 7",
             description="New desc",
             attendees=["x@y.com"],
+            as_user=None,
         )
         mock_result.assert_called_once_with(event)
 
@@ -625,7 +636,7 @@ def test_delete(monkeypatch):
 
         main()
 
-        mock_delete.assert_called_once_with("evt-001")
+        mock_delete.assert_called_once_with("evt-001", as_user=None)
         mock_result.assert_called_once_with(resp)
 
 
