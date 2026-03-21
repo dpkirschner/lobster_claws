@@ -35,11 +35,11 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 - ✓ Calendar CLI registered as `claws calendar` with list/get subcommands — v1.2 Phase 6
 - ✓ Calendar write operations — create, update, delete events with all-day support — v1.2 Phase 7
 
+- ✓ Auth server accepts per-request `subject` for multi-agent identity — v1.3 Phase 8
+- ✓ Gmail and Calendar skills support `--as user@domain.com` flag — v1.3 Phase 8
+
 ### Active
 
-- [ ] Multi-agent identity via `--as` flag on all Google skills
-- [ ] Auth server accepts `subject` per token request
-- [ ] Gmail and Calendar skills updated with `--as` flag
 - [ ] Google Drive skill (list, download, upload)
 
 ## Current Milestone: v1.3 Multi-Agent Identity + Google Drive
@@ -64,7 +64,7 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 - **Shipped v1.2** with ~3,100 lines of Python across 7 packages (claws-common, claws-cli, claws-transcribe, claws-gmail, claws-calendar, whisper-server, google-auth-server)
 - **Tech stack**: uv workspaces, hatchling build backend, httpx, FastAPI, mlx-whisper, google-auth, argparse
-- **151 tests** passing across all packages
+- **181 tests** passing across all packages
 - **3 skills**: transcribe, gmail (read/send/search), calendar (list/get/create/update/delete)
 - **2 servers**: whisper (port 8300), google-auth (port 8301)
 - **OpenClaw** is an AI agent platform running in Docker (`node:24-bookworm`). The container has Python 3 + pip but no GPU.
