@@ -55,10 +55,10 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 
 ## Context
 
-- **Shipped v1.3** with ~4,000+ lines of Python across 8 packages (claws-common, claws-cli, claws-transcribe, claws-gmail, claws-calendar, claws-drive, whisper-server, google-auth-server)
+- **Shipped v1.3 + Phase 01** with ~6,000+ lines of Python across 12 packages (claws-common, claws-cli, claws-transcribe, claws-gmail, claws-calendar, claws-drive, claws-tasks, claws-contacts, claws-sheets, claws-docs, whisper-server, google-auth-server)
 - **Tech stack**: uv workspaces, hatchling build backend, httpx, FastAPI, mlx-whisper, google-auth, argparse
-- **207 tests** passing across all packages
-- **4 skills**: transcribe, gmail (read/send/search), calendar (list/get/create/update/delete), drive (list/download/upload)
+- **369 tests** passing across all packages
+- **8 skills**: transcribe, gmail (read/send/search), calendar (list/get/create/update/delete), drive (list/download/upload), tasks (full CRUD with task lists), contacts (full CRUD + search via People API), sheets (data read/write by range), docs (read/create/append)
 - **2 servers**: whisper (port 8300), google-auth (port 8301)
 - **OpenClaw** is an AI agent platform running in Docker (`node:24-bookworm`). The container has Python 3 + pip but no GPU.
 - **Host** is an Apple Silicon Mac mini running macOS with Metal/Neural Engine access for ML inference.
@@ -97,4 +97,4 @@ Every skill follows the same pattern: thin CLI in container → HTTP call to hos
 | --as flag for per-agent identity | Each agent gets its own Workspace user, skills pass subject to auth server | — Pending |
 
 ---
-*Last updated: 2026-03-21 after v1.3 milestone shipped*
+*Last updated: 2026-03-23 after Phase 01 (Tasks, Contacts, Sheets, Docs skills)*
