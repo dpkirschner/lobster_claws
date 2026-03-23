@@ -13,6 +13,7 @@ members = [
     "claws-common",
     "claws-drive",
     "claws-gmail",
+    "claws-tasks",
     "claws-transcribe",
     "google-auth-server",
     "lobster-claws",
@@ -260,6 +261,17 @@ requires-dist = [{ name = "claws-common", editable = "common" }]
 name = "claws-gmail"
 version = "0.1.0"
 source = { editable = "skills/gmail" }
+dependencies = [
+    { name = "claws-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "claws-common", editable = "common" }]
+
+[[package]]
+name = "claws-tasks"
+version = "0.1.0"
+source = { editable = "skills/tasks" }
 dependencies = [
     { name = "claws-common" },
 ]
@@ -603,6 +615,7 @@ dev = [
     { name = "claws-common" },
     { name = "claws-drive" },
     { name = "claws-gmail" },
+    { name = "claws-tasks" },
     { name = "claws-transcribe" },
     { name = "google-auth-server" },
     { name = "pytest" },
@@ -620,6 +633,7 @@ dev = [
     { name = "claws-common", editable = "common" },
     { name = "claws-drive", editable = "skills/drive" },
     { name = "claws-gmail", editable = "skills/gmail" },
+    { name = "claws-tasks", editable = "skills/tasks" },
     { name = "claws-transcribe", editable = "skills/transcribe" },
     { name = "google-auth-server", editable = "servers/google-auth" },
     { name = "pytest", specifier = ">=9.0" },
