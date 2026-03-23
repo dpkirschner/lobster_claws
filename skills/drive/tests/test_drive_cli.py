@@ -19,7 +19,7 @@ def test_list_default(monkeypatch):
         from claws_drive.cli import main
 
         main()
-        mock_list.assert_called_once_with(max_results=100, query=None, as_user=None)
+        mock_list.assert_called_once_with(max_results=100, query=None, as_user=None, drive_id=None)
         mock_result.assert_called_once_with({"files": mock_files, "result_count": 1})
 
 
@@ -33,7 +33,7 @@ def test_list_max(monkeypatch):
         from claws_drive.cli import main
 
         main()
-        mock_list.assert_called_once_with(max_results=10, query=None, as_user=None)
+        mock_list.assert_called_once_with(max_results=10, query=None, as_user=None, drive_id=None)
 
 
 def test_list_query(monkeypatch):
@@ -47,7 +47,7 @@ def test_list_query(monkeypatch):
 
         main()
         mock_list.assert_called_once_with(
-            max_results=100, query="name contains 'report'", as_user=None
+            max_results=100, query="name contains 'report'", as_user=None, drive_id=None
         )
 
 
@@ -61,7 +61,24 @@ def test_list_as_user(monkeypatch):
         from claws_drive.cli import main
 
         main()
-        mock_list.assert_called_once_with(max_results=100, query=None, as_user="alice@x.com")
+        mock_list.assert_called_once_with(
+            max_results=100, query=None, as_user="alice@x.com", drive_id=None
+        )
+
+
+def test_list_with_drive_flag(monkeypatch):
+    """--drive passes drive_id to list_files()."""
+    monkeypatch.setattr("sys.argv", ["claws-drive", "--drive", "drive-abc", "list"])
+    with (
+        patch("claws_drive.cli.list_files", return_value=[]) as mock_list,
+        patch("claws_drive.cli.result"),
+    ):
+        from claws_drive.cli import main
+
+        main()
+        mock_list.assert_called_once_with(
+            max_results=100, query=None, as_user=None, drive_id="drive-abc"
+        )
 
 
 # --- download ---
@@ -78,7 +95,9 @@ def test_download_default(monkeypatch):
         from claws_drive.cli import main
 
         main()
-        mock_dl.assert_called_once_with(file_id="file-123", output_path="./file-123", as_user=None)
+        mock_dl.assert_called_once_with(
+            file_id="file-123", output_path="./file-123", as_user=None, drive_id=None
+        )
         mock_result.assert_called_once_with(resp)
 
 
@@ -94,7 +113,23 @@ def test_download_output(monkeypatch):
 
         main()
         mock_dl.assert_called_once_with(
-            file_id="file-123", output_path="/tmp/out.pdf", as_user=None
+            file_id="file-123", output_path="/tmp/out.pdf", as_user=None, drive_id=None
+        )
+
+
+def test_download_with_drive_flag(monkeypatch):
+    """--drive passes drive_id to download_file()."""
+    monkeypatch.setattr("sys.argv", ["claws-drive", "--drive", "drive-abc", "download", "file-123"])
+    resp = {"file_id": "file-123", "path": "./file-123", "name": "report.pdf", "size": 1024}
+    with (
+        patch("claws_drive.cli.download_file", return_value=resp) as mock_dl,
+        patch("claws_drive.cli.result"),
+    ):
+        from claws_drive.cli import main
+
+        main()
+        mock_dl.assert_called_once_with(
+            file_id="file-123", output_path="./file-123", as_user=None, drive_id="drive-abc"
         )
 
 
@@ -113,7 +148,7 @@ def test_upload(monkeypatch):
 
         main()
         mock_up.assert_called_once_with(
-            file_path="/tmp/f.txt", name="report.txt", folder_id=None, as_user=None
+            file_path="/tmp/f.txt", name="report.txt", folder_id=None, as_user=None, drive_id=None
         )
         mock_result.assert_called_once_with(resp)
 
@@ -133,7 +168,30 @@ def test_upload_folder(monkeypatch):
 
         main()
         mock_up.assert_called_once_with(
-            file_path="/tmp/f.txt", name="r.txt", folder_id="fold-1", as_user=None
+            file_path="/tmp/f.txt", name="r.txt", folder_id="fold-1", as_user=None, drive_id=None
+        )
+
+
+def test_upload_with_drive_flag(monkeypatch):
+    """--drive passes drive_id to upload_file()."""
+    monkeypatch.setattr(
+        "sys.argv",
+        ["claws-drive", "--drive", "drive-abc", "upload", "/tmp/f.txt", "--name", "report.txt"],
+    )
+    resp = {"id": "new-id", "name": "report.txt", "mimeType": "text/plain"}
+    with (
+        patch("claws_drive.cli.upload_file", return_value=resp) as mock_up,
+        patch("claws_drive.cli.result"),
+    ):
+        from claws_drive.cli import main
+
+        main()
+        mock_up.assert_called_once_with(
+            file_path="/tmp/f.txt",
+            name="report.txt",
+            folder_id=None,
+            as_user=None,
+            drive_id="drive-abc",
         )
 
 

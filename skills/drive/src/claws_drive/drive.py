@@ -57,6 +57,7 @@ def list_files(
     max_results: int = 100,
     query: str | None = None,
     as_user: str | None = None,
+    drive_id: str | None = None,
 ) -> list[dict]:
     """List files in Google Drive.
 
@@ -64,6 +65,7 @@ def list_files(
         max_results: Maximum number of files to return (default 100).
         query: Optional Drive search query string.
         as_user: Act as this Google Workspace user (email).
+        drive_id: Shared Drive ID (omit for My Drive).
 
     Returns:
         List of file metadata dicts.
@@ -76,6 +78,11 @@ def list_files(
     }
     if query:
         params["q"] = query
+    if drive_id:
+        params["supportsAllDrives"] = "true"
+        params["includeItemsFromAllDrives"] = "true"
+        params["driveId"] = drive_id
+        params["corpora"] = "drive"
     data = _drive_get("/files", token, params=params)
     return data.get("files", [])
 
@@ -84,6 +91,7 @@ def download_file(
     file_id: str,
     output_path: str,
     as_user: str | None = None,
+    drive_id: str | None = None,
 ) -> dict:
     """Download a file from Google Drive.
 
@@ -94,6 +102,7 @@ def download_file(
         file_id: The Drive file ID.
         output_path: Local path to write the downloaded file.
         as_user: Act as this Google Workspace user (email).
+        drive_id: Shared Drive ID (omit for My Drive).
 
     Returns:
         Dict with file_id, path, name, and size.
@@ -101,10 +110,13 @@ def download_file(
     token = get_access_token(as_user=as_user)
 
     # Step 1: Fetch metadata
+    meta_params: dict = {"fields": "id,name,mimeType,size"}
+    if drive_id:
+        meta_params["supportsAllDrives"] = "true"
     metadata = _drive_get(
         f"/files/{file_id}",
         token,
-        params={"fields": "id,name,mimeType,size"},
+        params=meta_params,
     )
 
     mime_type = metadata.get("mimeType", "")
@@ -117,17 +129,23 @@ def download_file(
         if not export_mime:
             fail(f"Unsupported Google Workspace document type: {mime_type}")
             return {}  # fail() exits, but satisfy type checker
+        export_params: dict = {"mimeType": export_mime}
+        if drive_id:
+            export_params["supportsAllDrives"] = "true"
         resp = httpx.get(
             f"{DRIVE_BASE}/files/{file_id}/export",
-            params={"mimeType": export_mime},
+            params=export_params,
             headers=headers,
             timeout=120.0,
         )
     else:
         # Regular file — download binary
+        dl_params: dict = {"alt": "media"}
+        if drive_id:
+            dl_params["supportsAllDrives"] = "true"
         resp = httpx.get(
             f"{DRIVE_BASE}/files/{file_id}",
-            params={"alt": "media"},
+            params=dl_params,
             headers=headers,
             timeout=120.0,
         )
@@ -151,6 +169,7 @@ def upload_file(
     name: str,
     folder_id: str | None = None,
     as_user: str | None = None,
+    drive_id: str | None = None,
 ) -> dict:
     """Upload a file to Google Drive using multipart/related.
 
@@ -159,6 +178,7 @@ def upload_file(
         name: Name for the file in Drive.
         folder_id: Optional parent folder ID.
         as_user: Act as this Google Workspace user (email).
+        drive_id: Shared Drive ID (omit for My Drive).
 
     Returns:
         Dict with id, name, and mimeType of the created file.
@@ -173,6 +193,8 @@ def upload_file(
     metadata: dict = {"name": name}
     if folder_id:
         metadata["parents"] = [folder_id]
+    elif drive_id:
+        metadata["parents"] = [drive_id]
 
     boundary = uuid.uuid4().hex
     body = (
@@ -183,8 +205,12 @@ def upload_file(
         f"Content-Type: {mime_type}\r\n\r\n"
     ).encode() + file_bytes + f"\r\n--{boundary}--".encode()
 
+    upload_url = f"{DRIVE_UPLOAD_BASE}/files?uploadType=multipart"
+    if drive_id:
+        upload_url += "&supportsAllDrives=true"
+
     resp = httpx.post(
-        f"{DRIVE_UPLOAD_BASE}/files?uploadType=multipart",
+        upload_url,
         content=body,
         headers={
             "Authorization": f"Bearer {token}",

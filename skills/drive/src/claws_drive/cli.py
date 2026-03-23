@@ -21,6 +21,7 @@ def main():
         description="Google Drive skill for listing, downloading, and uploading files",
     )
     parser.add_argument("--as", dest="as_user", help="Act as this Google Workspace user (email)")
+    parser.add_argument("--drive", dest="drive_id", help="Shared Drive ID (omit for My Drive)")
     subs = parser.add_subparsers(dest="command", required=True)
 
     # list
@@ -47,6 +48,7 @@ def main():
                 max_results=args.max,
                 query=args.query,
                 as_user=args.as_user,
+                drive_id=args.drive_id,
             )
             result({"files": files, "result_count": len(files)})
 
@@ -56,6 +58,7 @@ def main():
                 file_id=args.file_id,
                 output_path=output_path,
                 as_user=args.as_user,
+                drive_id=args.drive_id,
             )
             result(resp)
 
@@ -65,6 +68,7 @@ def main():
                 name=args.name,
                 folder_id=args.folder,
                 as_user=args.as_user,
+                drive_id=args.drive_id,
             )
             result(resp)
 
