@@ -228,6 +228,28 @@ def upload_file(
     }
 
 
+def list_drives(
+    max_results: int = 100,
+    as_user: str | None = None,
+) -> list[dict]:
+    """List Shared Drives accessible to the service account.
+
+    Args:
+        max_results: Maximum number of drives to return (default 100).
+        as_user: Act as this Google Workspace user (email).
+
+    Returns:
+        List of drive metadata dicts with id, name, and kind.
+    """
+    token = get_access_token(as_user=as_user)
+    data = _drive_get(
+        "/drives",
+        token,
+        params={"pageSize": max_results},
+    )
+    return data.get("drives", [])
+
+
 def handle_drive_error(e: httpx.HTTPStatusError) -> None:
     """Translate Drive API errors to user-friendly messages."""
     try:

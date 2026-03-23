@@ -9,6 +9,7 @@ from claws_drive.drive import (
     download_file,
     get_access_token,
     handle_drive_error,
+    list_drives,
     list_files,
     upload_file,
 )
@@ -89,6 +90,54 @@ def test_list_files(mock_auth_client, mock_httpx):
     params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
     assert "pageSize" in params
     assert "fields" in params
+
+
+# --- list_drives ---
+
+
+def test_list_drives(mock_auth_client, mock_httpx):
+    """list_drives returns drives from API response."""
+    response = MagicMock()
+    response.json.return_value = {
+        "drives": [
+            {"id": "drive-1", "name": "Engineering", "kind": "drive#drive"},
+            {"id": "drive-2", "name": "Marketing", "kind": "drive#drive"},
+        ]
+    }
+    response.raise_for_status = MagicMock()
+    mock_httpx.get.return_value = response
+
+    drives = list_drives()
+
+    assert len(drives) == 2
+    assert drives[0]["id"] == "drive-1"
+    assert drives[0]["name"] == "Engineering"
+    assert drives[1]["id"] == "drive-2"
+
+
+def test_list_drives_empty(mock_auth_client, mock_httpx):
+    """list_drives returns empty list when no drives accessible."""
+    response = MagicMock()
+    response.json.return_value = {}
+    response.raise_for_status = MagicMock()
+    mock_httpx.get.return_value = response
+
+    drives = list_drives()
+    assert drives == []
+
+
+def test_list_drives_as_user(mock_auth_client, mock_httpx):
+    """list_drives(as_user=...) passes subject to auth server."""
+    response = MagicMock()
+    response.json.return_value = {"drives": []}
+    response.raise_for_status = MagicMock()
+    mock_httpx.get.return_value = response
+
+    list_drives(as_user="alice@x.com")
+
+    call_args = mock_auth_client.post_json.call_args
+    body = call_args[0][1]
+    assert body["subject"] == "alice@x.com"
 
 
 def test_list_files_shared_drive(mock_auth_client, mock_httpx):

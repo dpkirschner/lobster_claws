@@ -9,6 +9,7 @@ from claws_common.output import crash, result
 from claws_drive.drive import (
     download_file,
     handle_drive_error,
+    list_drives,
     list_files,
     upload_file,
 )
@@ -33,6 +34,10 @@ def main():
     dl_p = subs.add_parser("download", help="Download a file by ID")
     dl_p.add_argument("file_id", help="Google Drive file ID")
     dl_p.add_argument("-o", "--output", help="Output file path (default: ./<filename>)")
+
+    # list-drives
+    ld_p = subs.add_parser("list-drives", help="List accessible Shared Drives")
+    ld_p.add_argument("--max", type=int, default=100, help="Max drives (default: 100)")
 
     # upload
     up_p = subs.add_parser("upload", help="Upload a file to Google Drive")
@@ -61,6 +66,13 @@ def main():
                 drive_id=args.drive_id,
             )
             result(resp)
+
+        elif args.command == "list-drives":
+            drives = list_drives(
+                max_results=args.max,
+                as_user=args.as_user,
+            )
+            result({"drives": drives, "result_count": len(drives)})
 
         elif args.command == "upload":
             resp = upload_file(

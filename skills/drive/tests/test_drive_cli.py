@@ -81,6 +81,41 @@ def test_list_with_drive_flag(monkeypatch):
         )
 
 
+# --- list-drives ---
+
+
+def test_list_drives_default(monkeypatch):
+    """list-drives calls list_drives and outputs wrapped dict."""
+    monkeypatch.setattr("sys.argv", ["claws-drive", "list-drives"])
+    mock_drives = [{"id": "d1", "name": "Engineering"}]
+    with (
+        patch("claws_drive.cli.list_drives", return_value=mock_drives) as mock_ld,
+        patch("claws_drive.cli.result") as mock_result,
+    ):
+        from claws_drive.cli import main
+
+        main()
+        mock_ld.assert_called_once_with(max_results=100, as_user=None)
+        mock_result.assert_called_once_with(
+            {"drives": mock_drives, "result_count": 1}
+        )
+
+
+def test_list_drives_with_as_flag(monkeypatch):
+    """list-drives --as passes as_user."""
+    monkeypatch.setattr(
+        "sys.argv", ["claws-drive", "--as", "alice@x.com", "list-drives"]
+    )
+    with (
+        patch("claws_drive.cli.list_drives", return_value=[]) as mock_ld,
+        patch("claws_drive.cli.result"),
+    ):
+        from claws_drive.cli import main
+
+        main()
+        mock_ld.assert_called_once_with(max_results=100, as_user="alice@x.com")
+
+
 # --- download ---
 
 
