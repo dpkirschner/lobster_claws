@@ -2,7 +2,7 @@
 name = "whisper-server"
 version = "0.1.0"
 description = "FastAPI server wrapping mlx-whisper for audio transcription"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.135",
     "uvicorn>=0.42",
