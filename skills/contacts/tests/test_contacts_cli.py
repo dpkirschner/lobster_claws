@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-
 # --- list ---
 
 
@@ -98,7 +97,8 @@ def test_create_all_fields(monkeypatch):
     """create --name --email --phone passes all args."""
     monkeypatch.setattr(
         "sys.argv",
-        ["claws-contacts", "create", "--name", "Alice", "--email", "a@x.com", "--phone", "555-1234"],
+        ["claws-contacts", "create", "--name", "Alice",
+         "--email", "a@x.com", "--phone", "555-1234"],
     )
     resp = {"resourceName": "people/c999"}
 
@@ -203,7 +203,9 @@ def test_search_with_as_flag(monkeypatch):
         from claws_contacts.cli import main
 
         main()
-        mock_search.assert_called_once_with(query="bob", max_results=10, as_user="alice@example.com")
+        mock_search.assert_called_once_with(
+            query="bob", max_results=10, as_user="alice@example.com"
+        )
 
 
 def test_get_with_as_flag(monkeypatch):
@@ -257,7 +259,9 @@ def test_delete_with_as_flag(monkeypatch):
         from claws_contacts.cli import main
 
         main()
-        mock_delete.assert_called_once_with(resource_name="people/c123", as_user="alice@example.com")
+        mock_delete.assert_called_once_with(
+            resource_name="people/c123", as_user="alice@example.com"
+        )
 
 
 # --- error handling ---

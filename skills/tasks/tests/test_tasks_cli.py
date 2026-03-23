@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-
 # --- lists ---
 
 
@@ -97,7 +96,8 @@ def test_create_with_list_and_notes(monkeypatch):
     """create --title 'Buy milk' --list LISTID --notes 'From store' passes all args."""
     monkeypatch.setattr(
         "sys.argv",
-        ["claws-tasks", "create", "--title", "Buy milk", "--list", "my-list", "--notes", "From store"],
+        ["claws-tasks", "create", "--title", "Buy milk",
+         "--list", "my-list", "--notes", "From store"],
     )
     mock_task = {"id": "new-task", "title": "Buy milk", "notes": "From store"}
 
@@ -228,7 +228,9 @@ def test_list_with_as_flag(monkeypatch):
         from claws_tasks.cli import main
 
         main()
-        mock_fn.assert_called_once_with(tasklist="@default", max_results=100, as_user="alice@example.com")
+        mock_fn.assert_called_once_with(
+            tasklist="@default", max_results=100, as_user="alice@example.com"
+        )
 
 
 def test_create_with_as_flag(monkeypatch):
@@ -264,7 +266,9 @@ def test_complete_with_as_flag(monkeypatch):
         from claws_tasks.cli import main
 
         main()
-        mock_fn.assert_called_once_with(tasklist="@default", task_id="task-1", as_user="alice@example.com")
+        mock_fn.assert_called_once_with(
+            tasklist="@default", task_id="task-1", as_user="alice@example.com"
+        )
 
 
 def test_delete_with_as_flag(monkeypatch):
@@ -281,7 +285,9 @@ def test_delete_with_as_flag(monkeypatch):
         from claws_tasks.cli import main
 
         main()
-        mock_fn.assert_called_once_with(tasklist="@default", task_id="task-1", as_user="alice@example.com")
+        mock_fn.assert_called_once_with(
+            tasklist="@default", task_id="task-1", as_user="alice@example.com"
+        )
 
 
 # --- error handling ---

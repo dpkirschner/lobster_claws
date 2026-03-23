@@ -3,7 +3,6 @@
 import argparse
 
 import httpx
-
 from claws_common.output import crash, result
 
 from claws_contacts.contacts import (

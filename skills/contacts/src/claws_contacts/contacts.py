@@ -5,7 +5,6 @@ creating, updating (with etag), deleting, and error handling.
 """
 
 import httpx
-
 from claws_common.client import ClawsClient
 from claws_common.output import crash, fail
 

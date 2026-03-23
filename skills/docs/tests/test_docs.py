@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from claws_docs.docs import (
     append_text,
     create_document,
@@ -13,7 +12,6 @@ from claws_docs.docs import (
     list_documents,
     read_document,
 )
-
 
 # --- fixtures ---
 

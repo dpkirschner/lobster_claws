@@ -3,18 +3,16 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from claws_contacts.contacts import (
+    create_contact,
+    delete_contact,
     get_access_token,
+    get_contact,
+    handle_contacts_error,
     list_contacts,
     search_contacts,
-    get_contact,
-    create_contact,
     update_contact,
-    delete_contact,
-    handle_contacts_error,
 )
-
 
 # --- fixtures ---
 

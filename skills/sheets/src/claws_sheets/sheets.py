@@ -6,7 +6,6 @@ and error handling. Data-only operations -- no formatting, charts, or formulas.
 """
 
 import httpx
-
 from claws_common.client import ClawsClient
 from claws_common.output import crash, fail
 

@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from claws_tasks.tasks import (
     complete_task,
     create_task,
@@ -14,7 +13,6 @@ from claws_tasks.tasks import (
     list_tasks,
     update_task,
 )
-
 
 # --- fixtures ---
 
@@ -374,7 +372,8 @@ def test_handle_tasks_error_403():
     with patch("claws_tasks.tasks.fail") as mock_fail:
         handle_tasks_error(error)
         mock_fail.assert_called_once()
-        assert "denied" in mock_fail.call_args[0][0].lower() or "forbidden" in mock_fail.call_args[0][0].lower()
+        msg = mock_fail.call_args[0][0].lower()
+        assert "denied" in msg or "forbidden" in msg
 
 
 def test_handle_tasks_error_404():

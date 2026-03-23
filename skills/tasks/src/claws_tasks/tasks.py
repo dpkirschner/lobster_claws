@@ -5,7 +5,6 @@ and error handling for the Google Tasks API.
 """
 
 import httpx
-
 from claws_common.client import ClawsClient
 from claws_common.output import crash, fail
 

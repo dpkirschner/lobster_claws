@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from claws_sheets.sheets import (
     AUTH_PORT,
     DRIVE_BASE,
@@ -17,7 +16,6 @@ from claws_sheets.sheets import (
     read_values,
     write_values,
 )
-
 
 # --- fixtures ---
 

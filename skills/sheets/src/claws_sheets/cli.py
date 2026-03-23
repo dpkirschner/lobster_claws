@@ -4,7 +4,6 @@ import argparse
 import json
 
 import httpx
-
 from claws_common.output import crash, fail, result
 
 from claws_sheets.sheets import (
