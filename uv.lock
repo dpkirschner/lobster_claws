@@ -11,6 +11,7 @@ members = [
     "claws-calendar",
     "claws-cli",
     "claws-common",
+    "claws-docs",
     "claws-drive",
     "claws-gmail",
     "claws-tasks",
@@ -245,6 +246,17 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "httpx", specifier = ">=0.28" }]
+
+[[package]]
+name = "claws-docs"
+version = "0.1.0"
+source = { editable = "skills/docs" }
+dependencies = [
+    { name = "claws-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "claws-common", editable = "common" }]
 
 [[package]]
 name = "claws-drive"
@@ -613,6 +625,7 @@ dev = [
     { name = "claws-calendar" },
     { name = "claws-cli" },
     { name = "claws-common" },
+    { name = "claws-docs" },
     { name = "claws-drive" },
     { name = "claws-gmail" },
     { name = "claws-tasks" },
@@ -631,6 +644,7 @@ dev = [
     { name = "claws-calendar", editable = "skills/calendar" },
     { name = "claws-cli", editable = "cli" },
     { name = "claws-common", editable = "common" },
+    { name = "claws-docs", editable = "skills/docs" },
     { name = "claws-drive", editable = "skills/drive" },
     { name = "claws-gmail", editable = "skills/gmail" },
     { name = "claws-tasks", editable = "skills/tasks" },
