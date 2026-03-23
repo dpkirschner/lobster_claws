@@ -61,3 +61,16 @@ Decimal phases appear between their surrounding integers in numeric order.
 | 7. Calendar Write Operations | v1.2 | 2/2 | Complete | 2026-03-20 |
 | 8. Multi-Agent Identity | v1.3 | 2/2 | Complete | 2026-03-21 |
 | 9. Google Drive Skill | v1.3 | 2/2 | Complete | 2026-03-21 |
+
+### Phase 1: Add Google Tasks, Contacts, Sheets, and Docs skills
+
+**Goal:** Add four new Google API skills (Tasks, Contacts, Sheets, Docs) following the established claw pattern -- thin CLI with argparse, ClawsClient for auth, raw httpx for Google REST APIs, result/fail/crash output helpers.
+**Requirements**: D-01 through D-17
+**Depends on:** Phase 9
+**Plans:** 4 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Google Tasks skill (full CRUD for task lists and tasks)
+- [ ] 01-02-PLAN.md — Google Contacts skill (full CRUD + search via People API)
+- [ ] 01-03-PLAN.md — Google Sheets skill (data-only read/write via A1 notation)
+- [ ] 01-04-PLAN.md — Google Docs skill (read plain text, create, append)
