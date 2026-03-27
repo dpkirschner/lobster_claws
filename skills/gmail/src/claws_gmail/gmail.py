@@ -10,6 +10,7 @@ from email.mime.text import MIMEText
 import httpx
 
 from claws_common.client import ClawsClient
+from claws_common.google import google_request
 from claws_common.output import crash, fail
 
 AUTH_PORT = 8301
@@ -19,12 +20,17 @@ GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
 def get_access_token(as_user: str | None = None) -> str:
     """Get Gmail access token from auth server."""
-    client = ClawsClient(service="google-auth", port=8301)
+    client = ClawsClient(service="google-auth", port=AUTH_PORT)
     body: dict = {"scopes": [GMAIL_SCOPE]}
     if as_user:
         body["subject"] = as_user
     resp = client.post_json("/token", body)
     return resp["access_token"]
+
+
+def _token_fn(as_user: str | None = None):
+    """Return a zero-arg callable that fetches a fresh token."""
+    return lambda: get_access_token(as_user=as_user)
 
 
 def get_header(headers: list[dict], name: str) -> str:
@@ -85,40 +91,21 @@ def build_raw_message(
     return base64.urlsafe_b64encode(raw_bytes).decode("ascii").rstrip("=")
 
 
-def _gmail_headers(token: str) -> dict:
-    """Build authorization headers for Gmail API calls."""
-    return {"Authorization": f"Bearer {token}"}
+def _gmail_get(path: str, token_fn, params: dict | None = None) -> dict:
+    """GET request to Gmail API with retry on stale token."""
+    return google_request("GET", f"{GMAIL_BASE}{path}", token_fn, params=params)
 
 
-def _gmail_get(path: str, token: str, params: dict | None = None) -> dict:
-    """GET request to Gmail API."""
-    resp = httpx.get(
-        f"{GMAIL_BASE}{path}",
-        params=params,
-        headers=_gmail_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+def _gmail_post(path: str, token_fn, json_data: dict) -> dict:
+    """POST request to Gmail API with retry on stale token."""
+    return google_request("POST", f"{GMAIL_BASE}{path}", token_fn, json=json_data)
 
 
-def _gmail_post(path: str, token: str, json_data: dict) -> dict:
-    """POST request to Gmail API."""
-    resp = httpx.post(
-        f"{GMAIL_BASE}{path}",
-        json=json_data,
-        headers=_gmail_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def _fetch_message_metadata(msg_id: str, token: str) -> dict:
+def _fetch_message_metadata(msg_id: str, token_fn) -> dict:
     """Fetch message metadata (headers + snippet) by ID."""
     data = _gmail_get(
         f"/messages/{msg_id}",
-        token,
+        token_fn,
         params={
             "format": "metadata",
             "metadataHeaders": ["From", "Subject", "Date"],
@@ -140,24 +127,24 @@ def list_inbox(max_results: int = 10, as_user: str | None = None) -> list[dict]:
 
     Two-step fetch: get message IDs, then metadata for each.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     data = _gmail_get(
         "/messages",
-        token,
+        tfn,
         params={"q": "in:inbox", "maxResults": max_results},
     )
     message_refs = data.get("messages", [])
 
     messages = []
     for ref in message_refs:
-        messages.append(_fetch_message_metadata(ref["id"], token))
+        messages.append(_fetch_message_metadata(ref["id"], tfn))
     return messages
 
 
 def read_message(msg_id: str, as_user: str | None = None) -> dict:
     """Read a message with full body extracted from MIME payload."""
-    token = get_access_token(as_user=as_user)
-    data = _gmail_get(f"/messages/{msg_id}", token, params={"format": "full"})
+    tfn = _token_fn(as_user)
+    data = _gmail_get(f"/messages/{msg_id}", tfn, params={"format": "full"})
     hdrs = data.get("payload", {}).get("headers", [])
 
     body = extract_body(data["payload"])
@@ -187,9 +174,9 @@ def send_message(
 
     Builds RFC 2822 message, base64url encodes it, and POSTs to messages/send.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     raw = build_raw_message(to, subject, body, cc=cc, bcc=bcc)
-    resp = _gmail_post("/messages/send", token, {"raw": raw})
+    resp = _gmail_post("/messages/send", tfn, {"raw": raw})
     return {
         "message_id": resp["id"],
         "thread_id": resp["threadId"],
@@ -201,17 +188,17 @@ def search_messages(query: str, max_results: int = 10, as_user: str | None = Non
 
     Same two-step fetch pattern as list_inbox.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     data = _gmail_get(
         "/messages",
-        token,
+        tfn,
         params={"q": query, "maxResults": max_results},
     )
     message_refs = data.get("messages", [])
 
     messages = []
     for ref in message_refs:
-        messages.append(_fetch_message_metadata(ref["id"], token))
+        messages.append(_fetch_message_metadata(ref["id"], tfn))
     return messages
 
 

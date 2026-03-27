@@ -8,6 +8,7 @@ from datetime import date, datetime, time
 
 import httpx
 from claws_common.client import ClawsClient
+from claws_common.google import google_request
 from claws_common.output import crash, fail
 
 AUTH_PORT = 8301
@@ -25,50 +26,30 @@ def get_access_token(as_user: str | None = None) -> str:
     return resp["access_token"]
 
 
-def _calendar_get(path: str, token: str, params: dict | None = None) -> dict:
+def _token_fn(as_user: str | None = None):
+    """Return a zero-arg callable that fetches a fresh token."""
+    return lambda: get_access_token(as_user=as_user)
+
+
+def _calendar_get(path: str, token_fn, params: dict | None = None) -> dict:
     """GET request to Google Calendar API."""
-    resp = httpx.get(
-        f"{CALENDAR_BASE}{path}",
-        params=params,
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("GET", f"{CALENDAR_BASE}{path}", token_fn, params=params)
 
 
-def _calendar_post(path: str, token: str, body: dict) -> dict:
+def _calendar_post(path: str, token_fn, body: dict) -> dict:
     """POST request to Google Calendar API."""
-    resp = httpx.post(
-        f"{CALENDAR_BASE}{path}",
-        json=body,
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("POST", f"{CALENDAR_BASE}{path}", token_fn, json=body)
 
 
-def _calendar_put(path: str, token: str, body: dict) -> dict:
+def _calendar_put(path: str, token_fn, body: dict) -> dict:
     """PUT request to Google Calendar API."""
-    resp = httpx.put(
-        f"{CALENDAR_BASE}{path}",
-        json=body,
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("PUT", f"{CALENDAR_BASE}{path}", token_fn, json=body)
 
 
-def _calendar_delete(path: str, token: str) -> None:
+def _calendar_delete(path: str, token_fn) -> None:
     """DELETE request to Google Calendar API."""
-    resp = httpx.delete(
-        f"{CALENDAR_BASE}{path}",
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=30.0,
-    )
-    resp.raise_for_status()
+    google_request("DELETE", f"{CALENDAR_BASE}{path}", token_fn, raw=True)
+    return None
 
 
 def date_to_rfc3339(d: date, end_of_day: bool = False) -> str:
@@ -158,7 +139,7 @@ def list_events(
     Returns:
         List of formatted event summary dicts.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     params: dict = {
         "singleEvents": "true",
         "orderBy": "startTime",
@@ -169,7 +150,7 @@ def list_events(
     if time_max is not None:
         params["timeMax"] = time_max
 
-    data = _calendar_get("/events", token, params=params)
+    data = _calendar_get("/events", tfn, params=params)
     return [format_event_summary(e) for e in data.get("items", [])]
 
 
@@ -183,8 +164,8 @@ def get_event(event_id: str, as_user: str | None = None) -> dict:
     Returns:
         Full event detail dict.
     """
-    token = get_access_token(as_user=as_user)
-    data = _calendar_get(f"/events/{event_id}", token)
+    tfn = _token_fn(as_user)
+    data = _calendar_get(f"/events/{event_id}", tfn)
     return format_event_detail(data)
 
 
@@ -214,7 +195,7 @@ def create_event(
     Returns:
         Formatted event detail dict.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     body: dict = {"summary": title}
 
     if all_day:
@@ -231,7 +212,7 @@ def create_event(
     if attendees:
         body["attendees"] = [{"email": e} for e in attendees]
 
-    data = _calendar_post("/events", token, body)
+    data = _calendar_post("/events", tfn, body)
     return format_event_detail(data)
 
 
@@ -263,7 +244,7 @@ def update_event(
     Returns:
         Formatted event detail dict.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     body: dict = {}
 
     if title is not None:
@@ -279,7 +260,7 @@ def update_event(
     if attendees is not None:
         body["attendees"] = [{"email": e} for e in attendees]
 
-    data = _calendar_put(f"/events/{event_id}", token, body)
+    data = _calendar_put(f"/events/{event_id}", tfn, body)
     return format_event_detail(data)
 
 
@@ -293,8 +274,8 @@ def delete_event(event_id: str, as_user: str | None = None) -> dict:
     Returns:
         Confirmation dict with deleted=True and event_id.
     """
-    token = get_access_token(as_user=as_user)
-    _calendar_delete(f"/events/{event_id}", token)
+    tfn = _token_fn(as_user)
+    _calendar_delete(f"/events/{event_id}", tfn)
     return {"deleted": True, "event_id": event_id}
 
 

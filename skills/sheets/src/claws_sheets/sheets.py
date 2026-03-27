@@ -7,6 +7,7 @@ and error handling. Data-only operations -- no formatting, charts, or formulas.
 
 import httpx
 from claws_common.client import ClawsClient
+from claws_common.google import google_request
 from claws_common.output import crash, fail
 
 AUTH_PORT = 8301
@@ -30,46 +31,23 @@ def get_access_token(as_user: str | None = None) -> str:
     return resp["access_token"]
 
 
-def _sheets_headers(token: str) -> dict:
-    """Build authorization headers for API calls."""
-    return {"Authorization": f"Bearer {token}"}
+def _token_fn(as_user: str | None = None):
+    return lambda: get_access_token(as_user=as_user)
 
 
-def _sheets_get(url: str, token: str, params: dict | None = None) -> dict:
+def _sheets_get(url: str, token_fn, params: dict | None = None) -> dict:
     """GET request to Sheets or Drive API (full URL)."""
-    resp = httpx.get(
-        url,
-        params=params,
-        headers=_sheets_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("GET", url, token_fn, params=params)
 
 
-def _sheets_post(url: str, token: str, body: dict) -> dict:
+def _sheets_post(url: str, token_fn, body: dict) -> dict:
     """POST request to Sheets API (full URL)."""
-    resp = httpx.post(
-        url,
-        json=body,
-        headers=_sheets_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("POST", url, token_fn, json=body)
 
 
-def _sheets_put(url: str, token: str, body: dict, params: dict | None = None) -> dict:
+def _sheets_put(url: str, token_fn, body: dict, params: dict | None = None) -> dict:
     """PUT request to Sheets API (full URL)."""
-    resp = httpx.put(
-        url,
-        json=body,
-        params=params,
-        headers=_sheets_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("PUT", url, token_fn, json=body, params=params)
 
 
 def list_spreadsheets(
@@ -84,10 +62,10 @@ def list_spreadsheets(
     Returns:
         List of file metadata dicts with id, name, modifiedTime.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     data = _sheets_get(
         f"{DRIVE_BASE}/files",
-        token,
+        tfn,
         params={
             "q": "mimeType='application/vnd.google-apps.spreadsheet'",
             "pageSize": max_results,
@@ -110,8 +88,8 @@ def read_values(
     Returns:
         2D list of cell values, or empty list if range has no data.
     """
-    token = get_access_token(as_user=as_user)
-    data = _sheets_get(f"{SHEETS_BASE}/{spreadsheet_id}/values/{range_}", token)
+    tfn = _token_fn(as_user)
+    data = _sheets_get(f"{SHEETS_BASE}/{spreadsheet_id}/values/{range_}", tfn)
     return data.get("values", [])
 
 
@@ -132,10 +110,10 @@ def write_values(
     Returns:
         Update response dict with updatedCells, updatedRows, etc.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     return _sheets_put(
         f"{SHEETS_BASE}/{spreadsheet_id}/values/{range_}",
-        token,
+        tfn,
         body={"range": range_, "values": values},
         params={"valueInputOption": "USER_ENTERED"},
     )
@@ -151,10 +129,10 @@ def create_spreadsheet(title: str, as_user: str | None = None) -> dict:
     Returns:
         Dict with spreadsheetId and title.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     data = _sheets_post(
         SHEETS_BASE,
-        token,
+        tfn,
         body={"properties": {"title": title}},
     )
     return {

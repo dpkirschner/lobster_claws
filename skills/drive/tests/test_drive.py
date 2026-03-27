@@ -1,11 +1,13 @@
 """Tests for Google Drive API client module."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import httpx as real_httpx
 import pytest
 from claws_drive.drive import (
+    DRIVE_BASE,
     DRIVE_SCOPE,
+    DRIVE_UPLOAD_BASE,
     download_file,
     get_access_token,
     handle_drive_error,
@@ -32,9 +34,9 @@ def mock_auth_client():
 
 
 @pytest.fixture
-def mock_httpx():
-    """Patch httpx in drive module."""
-    with patch("claws_drive.drive.httpx") as mock:
+def mock_google_request():
+    """Patch google_request in drive module."""
+    with patch("claws_drive.drive.google_request") as mock:
         yield mock
 
 
@@ -63,10 +65,9 @@ def test_get_access_token_as_user(mock_auth_client):
 # --- list_files ---
 
 
-def test_list_files(mock_auth_client, mock_httpx):
+def test_list_files(mock_auth_client, mock_google_request):
     """list_files returns file list from API response."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "files": [
             {
                 "id": "f1",
@@ -77,8 +78,6 @@ def test_list_files(mock_auth_client, mock_httpx):
             }
         ]
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     files = list_files()
 
@@ -86,8 +85,10 @@ def test_list_files(mock_auth_client, mock_httpx):
     assert files[0]["id"] == "f1"
     assert files[0]["name"] == "report.txt"
 
-    call_kwargs = mock_httpx.get.call_args
-    params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
+    args, kwargs = mock_google_request.call_args
+    assert args[0] == "GET"
+    assert args[1] == f"{DRIVE_BASE}/files"
+    params = kwargs.get("params")
     assert "pageSize" in params
     assert "fields" in params
 
@@ -95,17 +96,14 @@ def test_list_files(mock_auth_client, mock_httpx):
 # --- list_drives ---
 
 
-def test_list_drives(mock_auth_client, mock_httpx):
+def test_list_drives(mock_auth_client, mock_google_request):
     """list_drives returns drives from API response."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "drives": [
             {"id": "drive-1", "name": "Engineering", "kind": "drive#drive"},
             {"id": "drive-2", "name": "Marketing", "kind": "drive#drive"},
         ]
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     drives = list_drives()
 
@@ -115,83 +113,73 @@ def test_list_drives(mock_auth_client, mock_httpx):
     assert drives[1]["id"] == "drive-2"
 
 
-def test_list_drives_empty(mock_auth_client, mock_httpx):
+def test_list_drives_empty(mock_auth_client, mock_google_request):
     """list_drives returns empty list when no drives accessible."""
-    response = MagicMock()
-    response.json.return_value = {}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {}
 
     drives = list_drives()
     assert drives == []
 
 
-def test_list_drives_as_user(mock_auth_client, mock_httpx):
-    """list_drives(as_user=...) passes subject to auth server."""
-    response = MagicMock()
-    response.json.return_value = {"drives": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+def test_list_drives_as_user(mock_auth_client, mock_google_request):
+    """list_drives(as_user=...) passes a token_fn that delegates to get_access_token."""
+    mock_google_request.return_value = {"drives": []}
 
     list_drives(as_user="alice@x.com")
 
+    # The token_fn (second positional arg) should produce a token via get_access_token
+    args, kwargs = mock_google_request.call_args
+    token_fn = args[2]
+    # Invoke the captured token_fn to verify it calls auth with subject
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "alice@x.com"
 
 
-def test_list_files_shared_drive(mock_auth_client, mock_httpx):
+def test_list_files_shared_drive(mock_auth_client, mock_google_request):
     """list_files(drive_id=...) adds Shared Drive params."""
-    response = MagicMock()
-    response.json.return_value = {"files": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"files": []}
 
     list_files(drive_id="drive-abc")
 
-    call_kwargs = mock_httpx.get.call_args
-    params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
+    args, kwargs = mock_google_request.call_args
+    params = kwargs.get("params")
     assert params["supportsAllDrives"] == "true"
     assert params["includeItemsFromAllDrives"] == "true"
     assert params["driveId"] == "drive-abc"
     assert params["corpora"] == "drive"
 
 
-def test_list_files_with_query(mock_auth_client, mock_httpx):
+def test_list_files_with_query(mock_auth_client, mock_google_request):
     """list_files(query=...) passes q param to API."""
-    response = MagicMock()
-    response.json.return_value = {"files": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"files": []}
 
     list_files(query="name contains 'report'")
 
-    call_kwargs = mock_httpx.get.call_args
-    params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
+    args, kwargs = mock_google_request.call_args
+    params = kwargs.get("params")
     assert params["q"] == "name contains 'report'"
 
 
 # --- download_file ---
 
 
-def test_download_file_binary(mock_auth_client, mock_httpx, tmp_path):
+def test_download_file_binary(mock_auth_client, mock_google_request, tmp_path):
     """download_file writes binary content for regular files."""
-    # First call: metadata
-    meta_response = MagicMock()
-    meta_response.json.return_value = {
-        "id": "f1",
-        "name": "photo.jpg",
-        "mimeType": "image/jpeg",
-        "size": "100",
-    }
-    meta_response.raise_for_status = MagicMock()
-
-    # Second call: binary content
+    # First call: metadata (JSON dict), second call: binary response (raw)
     content_response = MagicMock()
     content_response.content = b"fakebytes"
-    content_response.raise_for_status = MagicMock()
 
-    mock_httpx.get.side_effect = [meta_response, content_response]
+    mock_google_request.side_effect = [
+        {
+            "id": "f1",
+            "name": "photo.jpg",
+            "mimeType": "image/jpeg",
+            "size": "100",
+        },
+        content_response,
+    ]
 
     out_path = str(tmp_path / "photo.jpg")
     result = download_file("f1", out_path)
@@ -205,55 +193,49 @@ def test_download_file_binary(mock_auth_client, mock_httpx, tmp_path):
         assert f.read() == b"fakebytes"
 
 
-def test_download_file_shared_drive(mock_auth_client, mock_httpx, tmp_path):
+def test_download_file_shared_drive(mock_auth_client, mock_google_request, tmp_path):
     """download_file(drive_id=...) adds supportsAllDrives to metadata fetch."""
-    meta_response = MagicMock()
-    meta_response.json.return_value = {
-        "id": "f1",
-        "name": "photo.jpg",
-        "mimeType": "image/jpeg",
-        "size": "100",
-    }
-    meta_response.raise_for_status = MagicMock()
-
     content_response = MagicMock()
     content_response.content = b"fakebytes"
-    content_response.raise_for_status = MagicMock()
 
-    mock_httpx.get.side_effect = [meta_response, content_response]
+    mock_google_request.side_effect = [
+        {
+            "id": "f1",
+            "name": "photo.jpg",
+            "mimeType": "image/jpeg",
+            "size": "100",
+        },
+        content_response,
+    ]
 
     out_path = str(tmp_path / "photo.jpg")
     download_file("f1", out_path, drive_id="drive-abc")
 
     # Metadata call should include supportsAllDrives
-    meta_call = mock_httpx.get.call_args_list[0]
-    meta_params = meta_call.kwargs.get("params") or meta_call[1].get("params")
+    meta_call = mock_google_request.call_args_list[0]
+    meta_params = meta_call.kwargs.get("params")
     assert meta_params["supportsAllDrives"] == "true"
 
     # Download call should also include supportsAllDrives
-    dl_call = mock_httpx.get.call_args_list[1]
-    dl_params = dl_call.kwargs.get("params") or dl_call[1].get("params")
+    dl_call = mock_google_request.call_args_list[1]
+    dl_params = dl_call.kwargs.get("params")
     assert dl_params["supportsAllDrives"] == "true"
 
 
-def test_download_file_google_doc(mock_auth_client, mock_httpx, tmp_path):
+def test_download_file_google_doc(mock_auth_client, mock_google_request, tmp_path):
     """download_file uses export endpoint for Google Workspace documents."""
-    # First call: metadata with Google Docs mimeType
-    meta_response = MagicMock()
-    meta_response.json.return_value = {
-        "id": "doc1",
-        "name": "My Document",
-        "mimeType": "application/vnd.google-apps.document",
-        "size": "0",
-    }
-    meta_response.raise_for_status = MagicMock()
-
-    # Second call: exported content
     export_response = MagicMock()
     export_response.content = b"exported text content"
-    export_response.raise_for_status = MagicMock()
 
-    mock_httpx.get.side_effect = [meta_response, export_response]
+    mock_google_request.side_effect = [
+        {
+            "id": "doc1",
+            "name": "My Document",
+            "mimeType": "application/vnd.google-apps.document",
+            "size": "0",
+        },
+        export_response,
+    ]
 
     out_path = str(tmp_path / "doc.txt")
     result = download_file("doc1", out_path)
@@ -262,24 +244,21 @@ def test_download_file_google_doc(mock_auth_client, mock_httpx, tmp_path):
     assert result["size"] == len(b"exported text content")
 
     # Verify the export call used /export URL and text/plain mimeType
-    second_call = mock_httpx.get.call_args_list[1]
-    url = second_call[0][0] if second_call[0] else second_call.kwargs.get("url", "")
-    assert "/export" in str(url)
-    params = second_call.kwargs.get("params") or second_call[1].get("params")
+    second_call = mock_google_request.call_args_list[1]
+    url = second_call[0][1]
+    assert "/export" in url
+    params = second_call.kwargs.get("params")
     assert params["mimeType"] == "text/plain"
 
 
-def test_download_file_unsupported_workspace_type(mock_auth_client, mock_httpx, tmp_path):
+def test_download_file_unsupported_workspace_type(mock_auth_client, mock_google_request, tmp_path):
     """download_file calls fail() for unsupported Google Workspace document types."""
-    meta_response = MagicMock()
-    meta_response.json.return_value = {
+    mock_google_request.return_value = {
         "id": "form1",
         "name": "My Form",
         "mimeType": "application/vnd.google-apps.form",
         "size": "0",
     }
-    meta_response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = meta_response
 
     with patch("claws_drive.drive.fail") as mock_fail:
         download_file("form1", str(tmp_path / "form.txt"))
@@ -290,7 +269,7 @@ def test_download_file_unsupported_workspace_type(mock_auth_client, mock_httpx, 
 # --- upload_file ---
 
 
-def test_upload_file(mock_auth_client, mock_httpx, tmp_path):
+def test_upload_file(mock_auth_client, mock_google_request, tmp_path):
     """upload_file sends multipart/related body with metadata and file content."""
     test_file = tmp_path / "test.txt"
     test_file.write_bytes(b"hello world")
@@ -301,8 +280,7 @@ def test_upload_file(mock_auth_client, mock_httpx, tmp_path):
         "name": "test.txt",
         "mimeType": "text/plain",
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = response
 
     result = upload_file(str(test_file), "test.txt")
 
@@ -310,19 +288,19 @@ def test_upload_file(mock_auth_client, mock_httpx, tmp_path):
     assert result["name"] == "test.txt"
     assert result["mimeType"] == "text/plain"
 
-    call_kwargs = mock_httpx.post.call_args
-    url = call_kwargs[0][0] if call_kwargs[0] else call_kwargs.kwargs.get("url", "")
-    assert "upload/drive/v3/files" in str(url)
+    args, kwargs = mock_google_request.call_args
+    assert args[0] == "POST"
+    assert "upload/drive/v3/files" in args[1]
 
-    headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers")
-    assert "multipart/related" in headers["Content-Type"]
+    extra_headers = kwargs.get("extra_headers")
+    assert "multipart/related" in extra_headers["Content-Type"]
 
-    content = call_kwargs.kwargs.get("content") or call_kwargs[1].get("content")
+    content = kwargs.get("content")
     assert b"hello world" in content
     assert b'"name": "test.txt"' in content
 
 
-def test_upload_file_shared_drive(mock_auth_client, mock_httpx, tmp_path):
+def test_upload_file_shared_drive(mock_auth_client, mock_google_request, tmp_path):
     """upload_file(drive_id=...) adds supportsAllDrives to URL and parents to metadata."""
     test_file = tmp_path / "test.txt"
     test_file.write_bytes(b"hello world")
@@ -333,20 +311,19 @@ def test_upload_file_shared_drive(mock_auth_client, mock_httpx, tmp_path):
         "name": "test.txt",
         "mimeType": "text/plain",
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = response
 
     upload_file(str(test_file), "test.txt", drive_id="drive-abc")
 
-    call_kwargs = mock_httpx.post.call_args
-    url = call_kwargs[0][0] if call_kwargs[0] else call_kwargs.kwargs.get("url", "")
-    assert "supportsAllDrives=true" in str(url)
+    args, kwargs = mock_google_request.call_args
+    url = args[1]
+    assert "supportsAllDrives=true" in url
 
-    content = call_kwargs.kwargs.get("content") or call_kwargs[1].get("content")
+    content = kwargs.get("content")
     assert b'"parents": ["drive-abc"]' in content
 
 
-def test_upload_file_with_folder(mock_auth_client, mock_httpx, tmp_path):
+def test_upload_file_with_folder(mock_auth_client, mock_google_request, tmp_path):
     """upload_file includes parents in metadata when folder_id is provided."""
     test_file = tmp_path / "test.txt"
     test_file.write_bytes(b"hello world")
@@ -357,13 +334,12 @@ def test_upload_file_with_folder(mock_auth_client, mock_httpx, tmp_path):
         "name": "test.txt",
         "mimeType": "text/plain",
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = response
 
     upload_file(str(test_file), "test.txt", folder_id="folder-123")
 
-    call_kwargs = mock_httpx.post.call_args
-    content = call_kwargs.kwargs.get("content") or call_kwargs[1].get("content")
+    args, kwargs = mock_google_request.call_args
+    content = kwargs.get("content")
     assert b'"parents": ["folder-123"]' in content
 
 

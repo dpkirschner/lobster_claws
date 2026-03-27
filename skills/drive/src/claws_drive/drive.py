@@ -11,6 +11,7 @@ import uuid
 
 import httpx
 from claws_common.client import ClawsClient
+from claws_common.google import google_request
 from claws_common.output import crash, fail
 
 AUTH_PORT = 8301
@@ -36,21 +37,14 @@ def get_access_token(as_user: str | None = None) -> str:
     return resp["access_token"]
 
 
-def _drive_headers(token: str) -> dict:
-    """Build authorization headers for Drive API calls."""
-    return {"Authorization": f"Bearer {token}"}
+def _token_fn(as_user: str | None = None):
+    """Return a zero-arg callable that fetches a fresh token."""
+    return lambda: get_access_token(as_user=as_user)
 
 
-def _drive_get(path: str, token: str, params: dict | None = None) -> dict:
-    """GET request to Drive API, returns JSON response."""
-    resp = httpx.get(
-        f"{DRIVE_BASE}{path}",
-        params=params,
-        headers=_drive_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+def _drive_get(path: str, token_fn, params: dict | None = None) -> dict:
+    """GET request to Drive API with retry on stale token."""
+    return google_request("GET", f"{DRIVE_BASE}{path}", token_fn, params=params)
 
 
 def list_files(
@@ -70,7 +64,7 @@ def list_files(
     Returns:
         List of file metadata dicts.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     params: dict = {
         "pageSize": max_results,
         "fields": "files(id,name,mimeType,modifiedTime,size,parents)",
@@ -83,7 +77,7 @@ def list_files(
         params["includeItemsFromAllDrives"] = "true"
         params["driveId"] = drive_id
         params["corpora"] = "drive"
-    data = _drive_get("/files", token, params=params)
+    data = _drive_get("/files", tfn, params=params)
     return data.get("files", [])
 
 
@@ -107,7 +101,7 @@ def download_file(
     Returns:
         Dict with file_id, path, name, and size.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
 
     # Step 1: Fetch metadata
     meta_params: dict = {"fields": "id,name,mimeType,size"}
@@ -115,12 +109,11 @@ def download_file(
         meta_params["supportsAllDrives"] = "true"
     metadata = _drive_get(
         f"/files/{file_id}",
-        token,
+        tfn,
         params=meta_params,
     )
 
     mime_type = metadata.get("mimeType", "")
-    headers = _drive_headers(token)
 
     # Step 2: Download or export
     if mime_type.startswith("application/vnd.google-apps."):
@@ -132,25 +125,19 @@ def download_file(
         export_params: dict = {"mimeType": export_mime}
         if drive_id:
             export_params["supportsAllDrives"] = "true"
-        resp = httpx.get(
-            f"{DRIVE_BASE}/files/{file_id}/export",
-            params=export_params,
-            headers=headers,
-            timeout=120.0,
+        resp = google_request(
+            "GET", f"{DRIVE_BASE}/files/{file_id}/export", tfn,
+            raw=True, params=export_params, timeout=120.0,
         )
     else:
         # Regular file — download binary
         dl_params: dict = {"alt": "media"}
         if drive_id:
             dl_params["supportsAllDrives"] = "true"
-        resp = httpx.get(
-            f"{DRIVE_BASE}/files/{file_id}",
-            params=dl_params,
-            headers=headers,
-            timeout=120.0,
+        resp = google_request(
+            "GET", f"{DRIVE_BASE}/files/{file_id}", tfn,
+            raw=True, params=dl_params, timeout=120.0,
         )
-
-    resp.raise_for_status()
 
     # Step 3: Write to disk
     with open(output_path, "wb") as f:
@@ -183,7 +170,7 @@ def upload_file(
     Returns:
         Dict with id, name, and mimeType of the created file.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
 
     with open(file_path, "rb") as f:
         file_bytes = f.read()
@@ -209,16 +196,13 @@ def upload_file(
     if drive_id:
         upload_url += "&supportsAllDrives=true"
 
-    resp = httpx.post(
-        upload_url,
+    resp = google_request(
+        "POST", upload_url, tfn,
+        raw=True,
+        extra_headers={"Content-Type": f"multipart/related; boundary={boundary}"},
         content=body,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": f"multipart/related; boundary={boundary}",
-        },
         timeout=120.0,
     )
-    resp.raise_for_status()
     resp_data = resp.json()
 
     return {
@@ -241,10 +225,10 @@ def list_drives(
     Returns:
         List of drive metadata dicts with id, name, and kind.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     data = _drive_get(
         "/drives",
-        token,
+        tfn,
         params={"pageSize": max_results},
     )
     return data.get("drives", [])

@@ -17,10 +17,10 @@ from google.oauth2 import service_account
 from pydantic import BaseModel
 
 DEFAULT_PORT = 8301
-DEFAULT_HOST = "127.0.0.1"
+DEFAULT_HOST = "0.0.0.0"
 
 # Scopes used for startup validation
-STARTUP_VALIDATION_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+STARTUP_VALIDATION_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 
 class TokenRequest(BaseModel):
@@ -133,6 +133,21 @@ async def get_token(req: TokenRequest):
         "expires_in": int(expires_at - now),
         "token_type": "Bearer",
     }
+
+
+@app.delete("/cache")
+async def clear_cache(subject: str | None = None):
+    """Clear cached tokens, optionally filtered by subject."""
+    cache = app.state.token_cache
+    if subject is None:
+        count = len(cache)
+        cache.clear()
+    else:
+        keys_to_remove = [k for k in cache if k[1] == subject]
+        for k in keys_to_remove:
+            del cache[k]
+        count = len(keys_to_remove)
+    return {"cleared": count}
 
 
 def main():

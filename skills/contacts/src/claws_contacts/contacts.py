@@ -6,6 +6,7 @@ creating, updating (with etag), deleting, and error handling.
 
 import httpx
 from claws_common.client import ClawsClient
+from claws_common.google import google_request
 from claws_common.output import crash, fail
 
 AUTH_PORT = 8301
@@ -24,56 +25,29 @@ def get_access_token(as_user: str | None = None) -> str:
     return resp["access_token"]
 
 
-def _contacts_headers(token: str) -> dict:
-    """Build authorization headers for People API calls."""
-    return {"Authorization": f"Bearer {token}"}
+def _token_fn(as_user: str | None = None):
+    return lambda: get_access_token(as_user=as_user)
 
 
-def _contacts_get(url: str, token: str, params: dict | None = None) -> dict:
+def _contacts_get(url: str, token_fn, params: dict | None = None) -> dict:
     """GET request to People API."""
-    resp = httpx.get(
-        url,
-        params=params,
-        headers=_contacts_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("GET", url, token_fn, params=params)
 
 
-def _contacts_post(url: str, token: str, body: dict) -> dict:
+def _contacts_post(url: str, token_fn, body: dict) -> dict:
     """POST request to People API."""
-    resp = httpx.post(
-        url,
-        json=body,
-        headers=_contacts_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("POST", url, token_fn, json=body)
 
 
-def _contacts_patch(url: str, token: str, body: dict, params: dict | None = None) -> dict:
+def _contacts_patch(url: str, token_fn, body: dict, params: dict | None = None) -> dict:
     """PATCH request to People API."""
-    resp = httpx.patch(
-        url,
-        json=body,
-        params=params,
-        headers=_contacts_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("PATCH", url, token_fn, json=body, params=params)
 
 
-def _contacts_delete(url: str, token: str) -> None:
+def _contacts_delete(url: str, token_fn) -> None:
     """DELETE request to People API."""
-    resp = httpx.delete(
-        url,
-        headers=_contacts_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
+    google_request("DELETE", url, token_fn, raw=True)
+    return None
 
 
 def list_contacts(max_results: int = 100, as_user: str | None = None) -> list[dict]:
@@ -81,10 +55,10 @@ def list_contacts(max_results: int = 100, as_user: str | None = None) -> list[di
 
     Returns list of person resources from People API.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     data = _contacts_get(
         f"{PEOPLE_BASE}/people/me/connections",
-        token,
+        tfn,
         params={"personFields": PERSON_FIELDS, "pageSize": max_results},
     )
     return data.get("connections", [])
@@ -97,10 +71,10 @@ def search_contacts(
 
     Returns list of search result objects from People API.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     data = _contacts_get(
         f"{PEOPLE_BASE}/people:searchContacts",
-        token,
+        tfn,
         params={"query": query, "readMask": PERSON_FIELDS, "pageSize": max_results},
     )
     return data.get("results", [])
@@ -108,10 +82,10 @@ def search_contacts(
 
 def get_contact(resource_name: str, as_user: str | None = None) -> dict:
     """Get a single contact by resource name (e.g., people/c1234567890)."""
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     return _contacts_get(
         f"{PEOPLE_BASE}/{resource_name}",
-        token,
+        tfn,
         params={"personFields": PERSON_FIELDS},
     )
 
@@ -123,13 +97,13 @@ def create_contact(
     as_user: str | None = None,
 ) -> dict:
     """Create a new contact with name and optional email/phone."""
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     person: dict = {"names": [{"givenName": name}]}
     if email:
         person["emailAddresses"] = [{"value": email}]
     if phone:
         person["phoneNumbers"] = [{"value": phone}]
-    return _contacts_post(f"{PEOPLE_BASE}/people:createContact", token, person)
+    return _contacts_post(f"{PEOPLE_BASE}/people:createContact", tfn, person)
 
 
 def update_contact(
@@ -143,12 +117,12 @@ def update_contact(
 
     Only updates fields that are provided (non-None).
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
 
     # Fetch current contact to get etag
     current = _contacts_get(
         f"{PEOPLE_BASE}/{resource_name}",
-        token,
+        tfn,
         params={"personFields": PERSON_FIELDS},
     )
     etag = current.get("etag", "")
@@ -169,7 +143,7 @@ def update_contact(
 
     return _contacts_patch(
         f"{PEOPLE_BASE}/{resource_name}:updateContact",
-        token,
+        tfn,
         person,
         params={"updatePersonFields": ",".join(update_fields)},
     )
@@ -177,8 +151,8 @@ def update_contact(
 
 def delete_contact(resource_name: str, as_user: str | None = None) -> None:
     """Delete a contact by resource name."""
-    token = get_access_token(as_user=as_user)
-    _contacts_delete(f"{PEOPLE_BASE}/{resource_name}:deleteContact", token)
+    tfn = _token_fn(as_user)
+    _contacts_delete(f"{PEOPLE_BASE}/{resource_name}:deleteContact", tfn)
 
 
 def handle_contacts_error(e: httpx.HTTPStatusError) -> None:

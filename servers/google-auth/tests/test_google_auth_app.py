@@ -234,6 +234,57 @@ def test_token_error_includes_subject(app_client, mock_creds):
     assert "bad@example.com" in resp.json()["detail"]
 
 
+def test_cache_clear_all(app_client, mock_creds):
+    """DELETE /cache clears all cached tokens."""
+    # Prime two different scope sets
+    app_client.post("/token", json={"scopes": ["https://www.googleapis.com/auth/gmail.readonly"]})
+    app_client.post("/token", json={"scopes": ["https://www.googleapis.com/auth/calendar"]})
+
+    resp = app_client.delete("/cache")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["cleared"] == 2
+
+    # Next token request should re-mint (refresh called again)
+    count_before = mock_creds.refresh.call_count
+    app_client.post("/token", json={"scopes": ["https://www.googleapis.com/auth/gmail.readonly"]})
+    assert mock_creds.refresh.call_count == count_before + 1
+
+
+def test_cache_clear_by_subject(app_client, mock_creds):
+    """DELETE /cache?subject=... clears only entries for that subject."""
+    app_client.post(
+        "/token",
+        json={"scopes": ["https://www.googleapis.com/auth/gmail.readonly"], "subject": "alice@example.com"},
+    )
+    app_client.post(
+        "/token",
+        json={"scopes": ["https://www.googleapis.com/auth/gmail.readonly"], "subject": "bob@example.com"},
+    )
+
+    resp = app_client.delete("/cache", params={"subject": "alice@example.com"})
+    assert resp.status_code == 200
+    assert resp.json()["cleared"] == 1
+
+    # Bob's token should still be cached (no new refresh)
+    count_before = mock_creds.refresh.call_count
+    app_client.post(
+        "/token",
+        json={"scopes": ["https://www.googleapis.com/auth/gmail.readonly"], "subject": "bob@example.com"},
+    )
+    assert mock_creds.refresh.call_count == count_before  # cache hit
+
+
+def test_cache_clear_empty(app_client):
+    """DELETE /cache with no cached tokens returns cleared=0."""
+    # Clear any startup-primed tokens first
+    app_client.delete("/cache")
+
+    resp = app_client.delete("/cache")
+    assert resp.status_code == 200
+    assert resp.json()["cleared"] == 0
+
+
 def test_default_bind():
     """main() calls uvicorn.run with host='127.0.0.1', port=8301."""
     with patch("uvicorn.run") as mock_run:

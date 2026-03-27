@@ -31,9 +31,9 @@ def mock_auth_client():
 
 
 @pytest.fixture
-def mock_httpx():
-    """Patch httpx in docs module."""
-    with patch("claws_docs.docs.httpx") as mock:
+def mock_google_request():
+    """Patch google_request in docs module."""
+    with patch("claws_docs.docs.google_request") as mock:
         yield mock
 
 
@@ -145,40 +145,36 @@ def test_extract_text_paragraph_no_text_runs():
 # --- list_documents ---
 
 
-def test_list_documents(mock_auth_client, mock_httpx):
+def test_list_documents(mock_auth_client, mock_google_request):
     """list_documents calls Drive API with correct mimeType filter."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "files": [
             {"id": "doc1", "name": "My Doc", "modifiedTime": "2026-03-20T10:00:00Z"},
         ]
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     docs = list_documents(max_results=50)
 
     assert len(docs) == 1
     assert docs[0]["id"] == "doc1"
 
-    # Verify Drive API call
-    call_args = mock_httpx.get.call_args
-    url = call_args[0][0]
-    params = call_args.kwargs.get("params") or call_args[1].get("params")
-    assert "drive/v3/files" in url
+    # Verify google_request call
+    call_args = mock_google_request.call_args
+    assert call_args[0][0] == "GET"
+    assert "drive/v3/files" in call_args[0][1]
+    params = call_args[1]["params"]
     assert "mimeType='application/vnd.google-apps.document'" in params["q"]
     assert params["pageSize"] == 50
 
 
-def test_list_documents_as_user(mock_auth_client, mock_httpx):
+def test_list_documents_as_user(mock_auth_client, mock_google_request):
     """list_documents(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"files": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"files": []}
 
     list_documents(as_user="test@example.com")
 
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "test@example.com"
@@ -187,9 +183,9 @@ def test_list_documents_as_user(mock_auth_client, mock_httpx):
 # --- read_document ---
 
 
-def test_read_document(mock_auth_client, mock_httpx):
+def test_read_document(mock_auth_client, mock_google_request):
     """read_document calls GET then extract_text, returns structured dict."""
-    doc_response = {
+    mock_google_request.return_value = {
         "documentId": "doc-123",
         "title": "Test Doc",
         "body": {
@@ -204,10 +200,6 @@ def test_read_document(mock_auth_client, mock_httpx):
             ]
         },
     }
-    response = MagicMock()
-    response.json.return_value = doc_response
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     result = read_document("doc-123")
 
@@ -215,25 +207,24 @@ def test_read_document(mock_auth_client, mock_httpx):
     assert result["title"] == "Test Doc"
     assert result["text"] == "Document content\n"
 
-    # Verify Docs API call
-    call_args = mock_httpx.get.call_args
-    url = call_args[0][0]
-    assert "docs.googleapis.com/v1/documents/doc-123" in url
+    # Verify google_request call
+    call_args = mock_google_request.call_args
+    assert call_args[0][0] == "GET"
+    assert "docs.googleapis.com/v1/documents/doc-123" in call_args[0][1]
 
 
-def test_read_document_as_user(mock_auth_client, mock_httpx):
+def test_read_document_as_user(mock_auth_client, mock_google_request):
     """read_document(doc_id, as_user=...) threads as_user through."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "documentId": "doc-123",
         "title": "Test",
         "body": {"content": []},
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     read_document("doc-123", as_user="test@example.com")
 
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "test@example.com"
@@ -242,71 +233,57 @@ def test_read_document_as_user(mock_auth_client, mock_httpx):
 # --- create_document ---
 
 
-def test_create_document_without_body(mock_auth_client, mock_httpx):
+def test_create_document_without_body(mock_auth_client, mock_google_request):
     """create_document without body makes single POST to create blank doc."""
-    create_response = MagicMock()
-    create_response.json.return_value = {
+    mock_google_request.return_value = {
         "documentId": "new-doc-1",
         "title": "My New Doc",
     }
-    create_response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = create_response
 
     result = create_document(title="My New Doc")
 
     assert result["documentId"] == "new-doc-1"
     assert result["title"] == "My New Doc"
 
-    # Should only call POST once (no batchUpdate)
-    assert mock_httpx.post.call_count == 1
-    call_args = mock_httpx.post.call_args
-    url = call_args[0][0]
-    assert "docs.googleapis.com/v1/documents" in url
-    json_data = call_args.kwargs.get("json") or call_args[1].get("json")
-    assert json_data == {"title": "My New Doc"}
+    # Should only call google_request once (no batchUpdate)
+    assert mock_google_request.call_count == 1
+    call_args = mock_google_request.call_args
+    assert call_args[0][0] == "POST"
+    assert "docs.googleapis.com/v1/documents" in call_args[0][1]
+    assert call_args[1]["json"] == {"title": "My New Doc"}
 
 
-def test_create_document_with_body(mock_auth_client, mock_httpx):
+def test_create_document_with_body(mock_auth_client, mock_google_request):
     """create_document with body makes POST to create then batchUpdate with InsertTextRequest."""
-    create_response = MagicMock()
-    create_response.json.return_value = {
-        "documentId": "new-doc-2",
-        "title": "Doc With Body",
-    }
-    create_response.raise_for_status = MagicMock()
-
-    batch_response = MagicMock()
-    batch_response.json.return_value = {"replies": []}
-    batch_response.raise_for_status = MagicMock()
-
-    mock_httpx.post.side_effect = [create_response, batch_response]
+    mock_google_request.side_effect = [
+        {"documentId": "new-doc-2", "title": "Doc With Body"},
+        {"replies": []},
+    ]
 
     result = create_document(title="Doc With Body", body="Hello world")
 
     assert result["documentId"] == "new-doc-2"
     assert result["title"] == "Doc With Body"
 
-    # Should call POST twice (create + batchUpdate)
-    assert mock_httpx.post.call_count == 2
+    # Should call google_request twice (create + batchUpdate)
+    assert mock_google_request.call_count == 2
 
     # Second call should be batchUpdate
-    batch_call = mock_httpx.post.call_args_list[1]
-    url = batch_call[0][0]
-    assert "batchUpdate" in url
-    json_data = batch_call.kwargs.get("json") or batch_call[1].get("json")
+    batch_call = mock_google_request.call_args_list[1]
+    assert "batchUpdate" in batch_call[0][1]
+    json_data = batch_call[1]["json"]
     assert json_data["requests"][0]["insertText"]["text"] == "Hello world"
     assert "endOfSegmentLocation" in json_data["requests"][0]["insertText"]
 
 
-def test_create_document_as_user(mock_auth_client, mock_httpx):
+def test_create_document_as_user(mock_auth_client, mock_google_request):
     """create_document(title, as_user=...) threads as_user through."""
-    response = MagicMock()
-    response.json.return_value = {"documentId": "new-1", "title": "T"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = {"documentId": "new-1", "title": "T"}
 
     create_document(title="T", as_user="test@example.com")
 
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "test@example.com"
@@ -315,19 +292,16 @@ def test_create_document_as_user(mock_auth_client, mock_httpx):
 # --- append_text ---
 
 
-def test_append_text(mock_auth_client, mock_httpx):
+def test_append_text(mock_auth_client, mock_google_request):
     """append_text sends batchUpdate with InsertTextRequest and endOfSegmentLocation."""
-    response = MagicMock()
-    response.json.return_value = {"replies": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = {"replies": []}
 
     append_text("doc-123", "More text here")
 
-    call_args = mock_httpx.post.call_args
-    url = call_args[0][0]
-    assert "doc-123:batchUpdate" in url
-    json_data = call_args.kwargs.get("json") or call_args[1].get("json")
+    call_args = mock_google_request.call_args
+    assert call_args[0][0] == "POST"
+    assert "doc-123:batchUpdate" in call_args[0][1]
+    json_data = call_args[1]["json"]
     requests = json_data["requests"]
     assert len(requests) == 1
     insert = requests[0]["insertText"]
@@ -335,15 +309,14 @@ def test_append_text(mock_auth_client, mock_httpx):
     assert insert["endOfSegmentLocation"] == {}
 
 
-def test_append_text_as_user(mock_auth_client, mock_httpx):
+def test_append_text_as_user(mock_auth_client, mock_google_request):
     """append_text(doc_id, text, as_user=...) threads as_user through."""
-    response = MagicMock()
-    response.json.return_value = {"replies": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = {"replies": []}
 
     append_text("doc-123", "text", as_user="test@example.com")
 
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "test@example.com"

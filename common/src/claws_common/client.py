@@ -52,6 +52,23 @@ class ClawsClient:
                 f"Request to {self.service} timed out after {self.timeout}s ({url})"
             )
 
+    def delete(self, path: str, params: dict | None = None) -> dict:
+        """DELETE request with error handling."""
+        url = f"{self.base_url}{path}"
+        try:
+            resp = httpx.delete(url, params=params, timeout=self.timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.ConnectError:
+            raise ConnectionError(
+                f"Cannot connect to {self.service} server at {url}. "
+                f"Is the server running? Check: curl {self.base_url}/health"
+            )
+        except httpx.TimeoutException:
+            raise TimeoutError(
+                f"Request to {self.service} timed out after {self.timeout}s ({url})"
+            )
+
     def post_file(self, path: str, file_path: str, **params) -> dict:
         """POST a file with multipart upload."""
         url = f"{self.base_url}{path}"

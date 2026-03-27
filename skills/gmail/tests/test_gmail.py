@@ -36,9 +36,9 @@ def mock_auth_client():
 
 
 @pytest.fixture
-def mock_httpx():
-    """Patch httpx in gmail module."""
-    with patch("claws_gmail.gmail.httpx") as mock:
+def mock_google_request():
+    """Patch google_request in gmail module."""
+    with patch("claws_gmail.gmail.google_request") as mock:
         yield mock
 
 
@@ -213,20 +213,12 @@ def test_build_raw_message_cc_bcc():
 # --- list_inbox ---
 
 
-def test_list_inbox(mock_auth_client, mock_httpx, sample_message_metadata):
+def test_list_inbox(mock_auth_client, mock_google_request, sample_message_metadata):
     """list_inbox fetches IDs then metadata, returns structured dicts."""
-    # First call: message list; subsequent calls: metadata for each message
-    list_response = MagicMock()
-    list_response.json.return_value = {
-        "messages": [{"id": "msg-001", "threadId": "thread-001"}]
-    }
-    list_response.raise_for_status = MagicMock()
-
-    meta_response = MagicMock()
-    meta_response.json.return_value = sample_message_metadata
-    meta_response.raise_for_status = MagicMock()
-
-    mock_httpx.get.side_effect = [list_response, meta_response]
+    mock_google_request.side_effect = [
+        {"messages": [{"id": "msg-001", "threadId": "thread-001"}]},
+        sample_message_metadata,
+    ]
 
     messages = list_inbox(max_results=5)
 
@@ -240,12 +232,9 @@ def test_list_inbox(mock_auth_client, mock_httpx, sample_message_metadata):
     assert msg["snippet"] == "Hey, how are you?"
 
 
-def test_list_inbox_empty(mock_auth_client, mock_httpx):
+def test_list_inbox_empty(mock_auth_client, mock_google_request):
     """list_inbox returns empty list when no messages exist."""
-    response = MagicMock()
-    response.json.return_value = {}  # No "messages" key
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {}  # No "messages" key
 
     messages = list_inbox()
     assert messages == []
@@ -254,12 +243,9 @@ def test_list_inbox_empty(mock_auth_client, mock_httpx):
 # --- read_message ---
 
 
-def test_read_message(mock_auth_client, mock_httpx, sample_message_full):
+def test_read_message(mock_auth_client, mock_google_request, sample_message_full):
     """read_message fetches full message and extracts text body."""
-    response = MagicMock()
-    response.json.return_value = sample_message_full
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = sample_message_full
 
     msg = read_message("msg-002")
 
@@ -272,12 +258,9 @@ def test_read_message(mock_auth_client, mock_httpx, sample_message_full):
 # --- send_message ---
 
 
-def test_send_message(mock_auth_client, mock_httpx):
+def test_send_message(mock_auth_client, mock_google_request):
     """send_message posts base64url-encoded raw message."""
-    response = MagicMock()
-    response.json.return_value = {"id": "sent-001", "threadId": "thread-sent-001"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = {"id": "sent-001", "threadId": "thread-sent-001"}
 
     result = send_message(to="bob@example.com", subject="Test", body="Hello")
 
@@ -285,36 +268,29 @@ def test_send_message(mock_auth_client, mock_httpx):
     assert result["thread_id"] == "thread-sent-001"
 
     # Verify the raw field was sent
-    call_kwargs = mock_httpx.post.call_args
-    json_data = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    call_kwargs = mock_google_request.call_args
+    json_data = call_kwargs.kwargs.get("json")
     assert "raw" in json_data
 
 
 # --- search_messages ---
 
 
-def test_search_messages(mock_auth_client, mock_httpx, sample_message_metadata):
+def test_search_messages(mock_auth_client, mock_google_request, sample_message_metadata):
     """search_messages passes query and returns same shape as list_inbox."""
-    list_response = MagicMock()
-    list_response.json.return_value = {
-        "messages": [{"id": "msg-001", "threadId": "thread-001"}]
-    }
-    list_response.raise_for_status = MagicMock()
-
-    meta_response = MagicMock()
-    meta_response.json.return_value = sample_message_metadata
-    meta_response.raise_for_status = MagicMock()
-
-    mock_httpx.get.side_effect = [list_response, meta_response]
+    mock_google_request.side_effect = [
+        {"messages": [{"id": "msg-001", "threadId": "thread-001"}]},
+        sample_message_metadata,
+    ]
 
     messages = search_messages("from:alice", max_results=5)
 
     assert len(messages) == 1
     assert messages[0]["from"] == "alice@example.com"
 
-    # Verify query was passed as q parameter
-    first_call = mock_httpx.get.call_args_list[0]
-    params = first_call.kwargs.get("params") or first_call[1].get("params")
+    # Verify query was passed as params
+    first_call = mock_google_request.call_args_list[0]
+    params = first_call.kwargs.get("params")
     assert params["q"] == "from:alice"
 
 
@@ -340,66 +316,59 @@ def test_get_access_token_without_subject(mock_auth_client):
     assert "subject" not in body
 
 
-def test_list_inbox_passes_subject(mock_auth_client, mock_httpx):
-    """list_inbox(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"messages": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+def test_list_inbox_passes_subject(mock_auth_client, mock_google_request):
+    """list_inbox(as_user=...) threads as_user through to token_fn."""
+    mock_google_request.return_value = {"messages": []}
 
     list_inbox(as_user="test@example.com")
 
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
+    # Extract token_fn passed to google_request and invoke it to verify delegation
+    token_fn = mock_google_request.call_args_list[0][0][2]
+    token_fn()
+    body = mock_auth_client.post_json.call_args[0][1]
     assert body["subject"] == "test@example.com"
 
 
-def test_read_message_passes_subject(mock_auth_client, mock_httpx, sample_message_full):
-    """read_message(msg_id, as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = sample_message_full
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+def test_read_message_passes_subject(mock_auth_client, mock_google_request, sample_message_full):
+    """read_message(msg_id, as_user=...) threads as_user through to token_fn."""
+    mock_google_request.return_value = sample_message_full
 
     read_message("msg-002", as_user="test@example.com")
 
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
+    token_fn = mock_google_request.call_args_list[0][0][2]
+    token_fn()
+    body = mock_auth_client.post_json.call_args[0][1]
     assert body["subject"] == "test@example.com"
 
 
-def test_send_message_passes_subject(mock_auth_client, mock_httpx):
-    """send_message(..., as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"id": "sent-001", "threadId": "thread-sent-001"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+def test_send_message_passes_subject(mock_auth_client, mock_google_request):
+    """send_message(..., as_user=...) threads as_user through to token_fn."""
+    mock_google_request.return_value = {"id": "sent-001", "threadId": "thread-sent-001"}
 
     send_message(to="bob@example.com", subject="Test", body="Hello", as_user="test@example.com")
 
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
+    token_fn = mock_google_request.call_args_list[0][0][2]
+    token_fn()
+    body = mock_auth_client.post_json.call_args[0][1]
     assert body["subject"] == "test@example.com"
 
 
-def test_search_messages_passes_subject(mock_auth_client, mock_httpx):
-    """search_messages(query, as_user=...) threads as_user through to get_access_token."""
-    list_response = MagicMock()
-    list_response.json.return_value = {"messages": []}
-    list_response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = list_response
+def test_search_messages_passes_subject(mock_auth_client, mock_google_request):
+    """search_messages(query, as_user=...) threads as_user through to token_fn."""
+    mock_google_request.return_value = {"messages": []}
 
     search_messages("from:alice", as_user="test@example.com")
 
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
+    token_fn = mock_google_request.call_args_list[0][0][2]
+    token_fn()
+    body = mock_auth_client.post_json.call_args[0][1]
     assert body["subject"] == "test@example.com"
 
 
 # --- handle_gmail_error ---
 
 
-def test_handle_gmail_error_401(mock_httpx):
+def test_handle_gmail_error_401():
     """401 errors call crash() with auth failure message."""
     import httpx as real_httpx
 
@@ -418,7 +387,7 @@ def test_handle_gmail_error_401(mock_httpx):
         assert "auth" in mock_crash.call_args[0][0].lower()
 
 
-def test_handle_gmail_error_404(mock_httpx):
+def test_handle_gmail_error_404():
     """404 errors call fail() with not found message."""
     import httpx as real_httpx
 
@@ -437,7 +406,7 @@ def test_handle_gmail_error_404(mock_httpx):
         assert "not found" in mock_fail.call_args[0][0].lower()
 
 
-def test_handle_gmail_error_429(mock_httpx):
+def test_handle_gmail_error_429():
     """429 errors call fail() with rate limit message."""
     import httpx as real_httpx
 

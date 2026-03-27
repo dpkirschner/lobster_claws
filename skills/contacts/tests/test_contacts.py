@@ -32,9 +32,9 @@ def mock_auth_client():
 
 
 @pytest.fixture
-def mock_httpx():
-    """Patch httpx in contacts module."""
-    with patch("claws_contacts.contacts.httpx") as mock:
+def mock_google_request():
+    """Patch google_request in contacts module."""
+    with patch("claws_contacts.contacts.google_request") as mock:
         yield mock
 
 
@@ -72,285 +72,235 @@ def test_get_access_token_without_subject(mock_auth_client):
 # --- list_contacts ---
 
 
-def test_list_contacts(mock_auth_client, mock_httpx):
+def test_list_contacts(mock_auth_client, mock_google_request):
     """list_contacts returns connections from response."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "connections": [
             {"resourceName": "people/c1", "names": [{"displayName": "Alice"}]},
             {"resourceName": "people/c2", "names": [{"displayName": "Bob"}]},
         ],
         "totalPeople": 2,
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     contacts = list_contacts(max_results=100)
     assert len(contacts) == 2
     assert contacts[0]["resourceName"] == "people/c1"
 
     # Verify correct URL and params
-    call_args = mock_httpx.get.call_args
-    url = call_args[0][0] if call_args[0] else call_args.kwargs.get("url")
+    call_args = mock_google_request.call_args
+    url = call_args[0][1]
     assert "people/me/connections" in url
-    params = call_args.kwargs.get("params") or call_args[1].get("params")
+    params = call_args.kwargs.get("params")
     assert params["personFields"] == "names,emailAddresses,phoneNumbers"
     assert params["pageSize"] == 100
 
 
-def test_list_contacts_empty(mock_auth_client, mock_httpx):
+def test_list_contacts_empty(mock_auth_client, mock_google_request):
     """list_contacts returns empty list when no connections."""
-    response = MagicMock()
-    response.json.return_value = {}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {}
 
     contacts = list_contacts()
     assert contacts == []
 
 
-def test_list_contacts_passes_subject(mock_auth_client, mock_httpx):
+def test_list_contacts_passes_subject(mock_auth_client, mock_google_request):
     """list_contacts(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"connections": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"connections": []}
 
-    list_contacts(as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_contacts.contacts._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        list_contacts(as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- search_contacts ---
 
 
-def test_search_contacts(mock_auth_client, mock_httpx):
+def test_search_contacts(mock_auth_client, mock_google_request):
     """search_contacts passes query parameter and returns results."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "results": [
             {"person": {"resourceName": "people/c1", "names": [{"displayName": "Alice"}]}}
         ]
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     results = search_contacts(query="alice")
     assert len(results) == 1
 
     # Verify query param
-    call_args = mock_httpx.get.call_args
-    params = call_args.kwargs.get("params") or call_args[1].get("params")
+    call_args = mock_google_request.call_args
+    params = call_args.kwargs.get("params")
     assert params["query"] == "alice"
     assert params["readMask"] == "names,emailAddresses,phoneNumbers"
 
 
-def test_search_contacts_passes_subject(mock_auth_client, mock_httpx):
+def test_search_contacts_passes_subject(mock_auth_client, mock_google_request):
     """search_contacts(as_user=...) threads as_user through."""
-    response = MagicMock()
-    response.json.return_value = {"results": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"results": []}
 
-    search_contacts(query="alice", as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_contacts.contacts._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        search_contacts(query="alice", as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- get_contact ---
 
 
-def test_get_contact(mock_auth_client, mock_httpx):
+def test_get_contact(mock_auth_client, mock_google_request):
     """get_contact calls correct URL with resource_name."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "resourceName": "people/c123",
         "names": [{"displayName": "Alice"}],
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     contact = get_contact(resource_name="people/c123")
     assert contact["resourceName"] == "people/c123"
 
     # Verify URL contains the resource name
-    call_args = mock_httpx.get.call_args
-    url = call_args[0][0] if call_args[0] else call_args.kwargs.get("url")
+    call_args = mock_google_request.call_args
+    url = call_args[0][1]
     assert "people/c123" in url
-    params = call_args.kwargs.get("params") or call_args[1].get("params")
+    params = call_args.kwargs.get("params")
     assert params["personFields"] == "names,emailAddresses,phoneNumbers"
 
 
-def test_get_contact_passes_subject(mock_auth_client, mock_httpx):
+def test_get_contact_passes_subject(mock_auth_client, mock_google_request):
     """get_contact(as_user=...) threads as_user through."""
-    response = MagicMock()
-    response.json.return_value = {"resourceName": "people/c123"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"resourceName": "people/c123"}
 
-    get_contact(resource_name="people/c123", as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_contacts.contacts._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        get_contact(resource_name="people/c123", as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- create_contact ---
 
 
-def test_create_contact_all_fields(mock_auth_client, mock_httpx):
+def test_create_contact_all_fields(mock_auth_client, mock_google_request):
     """create_contact with all fields sends names, email, phone."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "resourceName": "people/c999",
         "names": [{"givenName": "Alice"}],
         "emailAddresses": [{"value": "a@x.com"}],
         "phoneNumbers": [{"value": "555-1234"}],
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
 
     contact = create_contact(name="Alice", email="a@x.com", phone="555-1234")
     assert contact["resourceName"] == "people/c999"
 
     # Verify body
-    call_args = mock_httpx.post.call_args
-    body = call_args.kwargs.get("json") or call_args[1].get("json")
+    call_args = mock_google_request.call_args
+    body = call_args.kwargs.get("json")
     assert body["names"] == [{"givenName": "Alice"}]
     assert body["emailAddresses"] == [{"value": "a@x.com"}]
     assert body["phoneNumbers"] == [{"value": "555-1234"}]
 
 
-def test_create_contact_name_only(mock_auth_client, mock_httpx):
+def test_create_contact_name_only(mock_auth_client, mock_google_request):
     """create_contact with name only works without email/phone."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "resourceName": "people/c999",
         "names": [{"givenName": "Alice"}],
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
 
     contact = create_contact(name="Alice")
     assert contact["resourceName"] == "people/c999"
 
     # Verify body has no email or phone
-    call_args = mock_httpx.post.call_args
-    body = call_args.kwargs.get("json") or call_args[1].get("json")
+    call_args = mock_google_request.call_args
+    body = call_args.kwargs.get("json")
     assert body["names"] == [{"givenName": "Alice"}]
     assert "emailAddresses" not in body
     assert "phoneNumbers" not in body
 
 
-def test_create_contact_passes_subject(mock_auth_client, mock_httpx):
+def test_create_contact_passes_subject(mock_auth_client, mock_google_request):
     """create_contact(as_user=...) threads as_user through."""
-    response = MagicMock()
-    response.json.return_value = {"resourceName": "people/c999"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = {"resourceName": "people/c999"}
 
-    create_contact(name="Alice", as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_contacts.contacts._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        create_contact(name="Alice", as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- update_contact ---
 
 
-def test_update_contact(mock_auth_client, mock_httpx):
+def test_update_contact(mock_auth_client, mock_google_request):
     """update_contact fetches etag first, then patches with etag included."""
-    # First call: GET to fetch etag
-    get_response = MagicMock()
-    get_response.json.return_value = {
-        "resourceName": "people/c123",
-        "etag": "abc123etag",
-        "metadata": {"sources": [{"etag": "abc123etag"}]},
-        "names": [{"givenName": "OldName"}],
-    }
-    get_response.raise_for_status = MagicMock()
-
-    # Second call: PATCH with etag
-    patch_response = MagicMock()
-    patch_response.json.return_value = {
-        "resourceName": "people/c123",
-        "names": [{"givenName": "NewName"}],
-    }
-    patch_response.raise_for_status = MagicMock()
-
-    mock_httpx.get.return_value = get_response
-    mock_httpx.patch.return_value = patch_response
+    # First call (GET): returns etag; second call (PATCH): returns updated contact
+    mock_google_request.side_effect = [
+        {
+            "resourceName": "people/c123",
+            "etag": "abc123etag",
+            "metadata": {"sources": [{"etag": "abc123etag"}]},
+            "names": [{"givenName": "OldName"}],
+        },
+        {
+            "resourceName": "people/c123",
+            "names": [{"givenName": "NewName"}],
+        },
+    ]
 
     result = update_contact(resource_name="people/c123", name="NewName")
     assert result["names"][0]["givenName"] == "NewName"
 
-    # Verify GET was called first
-    mock_httpx.get.assert_called_once()
+    # Verify two google_request calls: GET then PATCH
+    assert mock_google_request.call_count == 2
+    get_call = mock_google_request.call_args_list[0]
+    assert get_call[0][0] == "GET"
 
-    # Verify PATCH includes etag
-    patch_call = mock_httpx.patch.call_args
-    body = patch_call.kwargs.get("json") or patch_call[1].get("json")
+    patch_call = mock_google_request.call_args_list[1]
+    assert patch_call[0][0] == "PATCH"
+    body = patch_call.kwargs.get("json")
     assert body["etag"] == "abc123etag"
     assert body["names"] == [{"givenName": "NewName"}]
 
 
-def test_update_contact_passes_subject(mock_auth_client, mock_httpx):
+def test_update_contact_passes_subject(mock_auth_client, mock_google_request):
     """update_contact(as_user=...) threads as_user through."""
-    get_response = MagicMock()
-    get_response.json.return_value = {
-        "resourceName": "people/c123",
-        "etag": "abc123etag",
-        "metadata": {"sources": [{"etag": "abc123etag"}]},
-    }
-    get_response.raise_for_status = MagicMock()
+    mock_google_request.side_effect = [
+        {
+            "resourceName": "people/c123",
+            "etag": "abc123etag",
+            "metadata": {"sources": [{"etag": "abc123etag"}]},
+        },
+        {"resourceName": "people/c123"},
+    ]
 
-    patch_response = MagicMock()
-    patch_response.json.return_value = {"resourceName": "people/c123"}
-    patch_response.raise_for_status = MagicMock()
-
-    mock_httpx.get.return_value = get_response
-    mock_httpx.patch.return_value = patch_response
-
-    update_contact(resource_name="people/c123", name="NewName", as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_contacts.contacts._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        update_contact(resource_name="people/c123", name="NewName", as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- delete_contact ---
 
 
-def test_delete_contact(mock_auth_client, mock_httpx):
+def test_delete_contact(mock_auth_client, mock_google_request):
     """delete_contact calls correct URL."""
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    mock_httpx.delete.return_value = response
+    mock_google_request.return_value = MagicMock()
 
     delete_contact(resource_name="people/c123")
 
     # Verify URL contains the resource name and deleteContact
-    call_args = mock_httpx.delete.call_args
-    url = call_args[0][0] if call_args[0] else call_args.kwargs.get("url")
+    call_args = mock_google_request.call_args
+    assert call_args[0][0] == "DELETE"
+    url = call_args[0][1]
     assert "people/c123:deleteContact" in url
 
 
-def test_delete_contact_passes_subject(mock_auth_client, mock_httpx):
+def test_delete_contact_passes_subject(mock_auth_client, mock_google_request):
     """delete_contact(as_user=...) threads as_user through."""
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    mock_httpx.delete.return_value = response
+    mock_google_request.return_value = MagicMock()
 
-    delete_contact(resource_name="people/c123", as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_contacts.contacts._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        delete_contact(resource_name="people/c123", as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- handle_contacts_error ---

@@ -32,9 +32,9 @@ def mock_auth_client():
 
 
 @pytest.fixture
-def mock_httpx():
-    """Patch httpx in tasks module."""
-    with patch("claws_tasks.tasks.httpx") as mock:
+def mock_google_request():
+    """Patch google_request in tasks module."""
+    with patch("claws_tasks.tasks.google_request") as mock:
         yield mock
 
 
@@ -72,17 +72,14 @@ def test_get_access_token_without_subject(mock_auth_client):
 # --- list_task_lists ---
 
 
-def test_list_task_lists(mock_auth_client, mock_httpx):
+def test_list_task_lists(mock_auth_client, mock_google_request):
     """list_task_lists returns list of task list dicts."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "items": [
             {"id": "list-1", "title": "My Tasks"},
             {"id": "list-2", "title": "Work"},
         ]
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     lists = list_task_lists()
 
@@ -91,45 +88,35 @@ def test_list_task_lists(mock_auth_client, mock_httpx):
     assert lists[1]["id"] == "list-2"
 
 
-def test_list_task_lists_empty(mock_auth_client, mock_httpx):
+def test_list_task_lists_empty(mock_auth_client, mock_google_request):
     """list_task_lists returns empty list when no task lists exist."""
-    response = MagicMock()
-    response.json.return_value = {}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {}
 
     lists = list_task_lists()
     assert lists == []
 
 
-def test_list_task_lists_passes_subject(mock_auth_client, mock_httpx):
+def test_list_task_lists_passes_subject(mock_auth_client, mock_google_request):
     """list_task_lists(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"items": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"items": []}
 
-    list_task_lists(as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_tasks.tasks._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        list_task_lists(as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- list_tasks ---
 
 
-def test_list_tasks(mock_auth_client, mock_httpx):
+def test_list_tasks(mock_auth_client, mock_google_request):
     """list_tasks returns list of task dicts for a given task list."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "items": [
             {"id": "task-1", "title": "Buy milk", "status": "needsAction"},
             {"id": "task-2", "title": "Walk dog", "status": "completed"},
         ]
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     tasks = list_tasks(tasklist="@default")
 
@@ -137,201 +124,162 @@ def test_list_tasks(mock_auth_client, mock_httpx):
     assert tasks[0]["title"] == "Buy milk"
 
 
-def test_list_tasks_default_tasklist(mock_auth_client, mock_httpx):
+def test_list_tasks_default_tasklist(mock_auth_client, mock_google_request):
     """list_tasks uses @default tasklist by default."""
-    response = MagicMock()
-    response.json.return_value = {"items": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"items": []}
 
     list_tasks()
 
-    call_args = mock_httpx.get.call_args
-    url = call_args[0][0]
+    call_args = mock_google_request.call_args
+    url = call_args[0][1]  # second positional arg is the URL
     assert "/lists/@default/tasks" in url
 
 
-def test_list_tasks_passes_subject(mock_auth_client, mock_httpx):
+def test_list_tasks_passes_subject(mock_auth_client, mock_google_request):
     """list_tasks(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"items": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"items": []}
 
-    list_tasks(as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_tasks.tasks._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        list_tasks(as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- create_task ---
 
 
-def test_create_task(mock_auth_client, mock_httpx):
+def test_create_task(mock_auth_client, mock_google_request):
     """create_task posts title and returns created task dict."""
-    response = MagicMock()
-    response.json.return_value = {"id": "new-task", "title": "Buy milk", "status": "needsAction"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = {"id": "new-task", "title": "Buy milk", "status": "needsAction"}
 
     task = create_task(tasklist="@default", title="Buy milk")
 
     assert task["id"] == "new-task"
     assert task["title"] == "Buy milk"
-    call_args = mock_httpx.post.call_args
-    json_data = call_args.kwargs.get("json") or call_args[1].get("json")
+    call_args = mock_google_request.call_args
+    assert call_args[0][0] == "POST"
+    json_data = call_args.kwargs.get("json")
     assert json_data["title"] == "Buy milk"
 
 
-def test_create_task_with_notes(mock_auth_client, mock_httpx):
+def test_create_task_with_notes(mock_auth_client, mock_google_request):
     """create_task with notes includes notes in body."""
-    response = MagicMock()
-    response.json.return_value = {"id": "new-task", "title": "Buy milk", "notes": "From store"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = {"id": "new-task", "title": "Buy milk", "notes": "From store"}
 
     create_task(tasklist="@default", title="Buy milk", notes="From store")
 
-    call_args = mock_httpx.post.call_args
-    json_data = call_args.kwargs.get("json") or call_args[1].get("json")
+    call_args = mock_google_request.call_args
+    json_data = call_args.kwargs.get("json")
     assert json_data["notes"] == "From store"
 
 
-def test_create_task_passes_subject(mock_auth_client, mock_httpx):
+def test_create_task_passes_subject(mock_auth_client, mock_google_request):
     """create_task(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"id": "new-task", "title": "Buy milk"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = {"id": "new-task", "title": "Buy milk"}
 
-    create_task(tasklist="@default", title="Buy milk", as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_tasks.tasks._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        create_task(tasklist="@default", title="Buy milk", as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- complete_task ---
 
 
-def test_complete_task(mock_auth_client, mock_httpx):
+def test_complete_task(mock_auth_client, mock_google_request):
     """complete_task patches task with status completed."""
-    response = MagicMock()
-    response.json.return_value = {"id": "task-1", "status": "completed"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.patch.return_value = response
+    mock_google_request.return_value = {"id": "task-1", "status": "completed"}
 
     task = complete_task(tasklist="@default", task_id="task-1")
 
     assert task["status"] == "completed"
-    call_args = mock_httpx.patch.call_args
-    json_data = call_args.kwargs.get("json") or call_args[1].get("json")
+    call_args = mock_google_request.call_args
+    assert call_args[0][0] == "PATCH"
+    json_data = call_args.kwargs.get("json")
     assert json_data == {"status": "completed"}
 
 
-def test_complete_task_passes_subject(mock_auth_client, mock_httpx):
+def test_complete_task_passes_subject(mock_auth_client, mock_google_request):
     """complete_task(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"id": "task-1", "status": "completed"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.patch.return_value = response
+    mock_google_request.return_value = {"id": "task-1", "status": "completed"}
 
-    complete_task(tasklist="@default", task_id="task-1", as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_tasks.tasks._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        complete_task(tasklist="@default", task_id="task-1", as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- update_task ---
 
 
-def test_update_task_title(mock_auth_client, mock_httpx):
+def test_update_task_title(mock_auth_client, mock_google_request):
     """update_task with title patches title only."""
-    response = MagicMock()
-    response.json.return_value = {"id": "task-1", "title": "New title"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.patch.return_value = response
+    mock_google_request.return_value = {"id": "task-1", "title": "New title"}
 
     task = update_task(tasklist="@default", task_id="task-1", title="New title")
 
     assert task["title"] == "New title"
-    call_args = mock_httpx.patch.call_args
-    json_data = call_args.kwargs.get("json") or call_args[1].get("json")
+    call_args = mock_google_request.call_args
+    json_data = call_args.kwargs.get("json")
     assert json_data == {"title": "New title"}
 
 
-def test_update_task_notes(mock_auth_client, mock_httpx):
+def test_update_task_notes(mock_auth_client, mock_google_request):
     """update_task with notes patches notes only."""
-    response = MagicMock()
-    response.json.return_value = {"id": "task-1", "notes": "Updated notes"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.patch.return_value = response
+    mock_google_request.return_value = {"id": "task-1", "notes": "Updated notes"}
 
     update_task(tasklist="@default", task_id="task-1", notes="Updated notes")
 
-    call_args = mock_httpx.patch.call_args
-    json_data = call_args.kwargs.get("json") or call_args[1].get("json")
+    call_args = mock_google_request.call_args
+    json_data = call_args.kwargs.get("json")
     assert json_data == {"notes": "Updated notes"}
 
 
-def test_update_task_both(mock_auth_client, mock_httpx):
+def test_update_task_both(mock_auth_client, mock_google_request):
     """update_task with title and notes patches both."""
-    response = MagicMock()
-    response.json.return_value = {"id": "task-1", "title": "New", "notes": "Notes"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.patch.return_value = response
+    mock_google_request.return_value = {"id": "task-1", "title": "New", "notes": "Notes"}
 
     update_task(tasklist="@default", task_id="task-1", title="New", notes="Notes")
 
-    call_args = mock_httpx.patch.call_args
-    json_data = call_args.kwargs.get("json") or call_args[1].get("json")
+    call_args = mock_google_request.call_args
+    json_data = call_args.kwargs.get("json")
     assert json_data == {"title": "New", "notes": "Notes"}
 
 
-def test_update_task_passes_subject(mock_auth_client, mock_httpx):
+def test_update_task_passes_subject(mock_auth_client, mock_google_request):
     """update_task(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"id": "task-1", "title": "New"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.patch.return_value = response
+    mock_google_request.return_value = {"id": "task-1", "title": "New"}
 
-    update_task(tasklist="@default", task_id="task-1", title="New", as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_tasks.tasks._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        update_task(tasklist="@default", task_id="task-1", title="New", as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- delete_task ---
 
 
-def test_delete_task(mock_auth_client, mock_httpx):
+def test_delete_task(mock_auth_client, mock_google_request):
     """delete_task sends DELETE request and returns None."""
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    mock_httpx.delete.return_value = response
+    mock_google_request.return_value = MagicMock()
 
     result = delete_task(tasklist="@default", task_id="task-1")
 
     assert result is None
-    call_args = mock_httpx.delete.call_args
-    url = call_args[0][0]
+    call_args = mock_google_request.call_args
+    assert call_args[0][0] == "DELETE"
+    url = call_args[0][1]
     assert "/lists/@default/tasks/task-1" in url
 
 
-def test_delete_task_passes_subject(mock_auth_client, mock_httpx):
+def test_delete_task_passes_subject(mock_auth_client, mock_google_request):
     """delete_task(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    mock_httpx.delete.return_value = response
+    mock_google_request.return_value = MagicMock()
 
-    delete_task(tasklist="@default", task_id="task-1", as_user="test@example.com")
-
-    call_args = mock_auth_client.post_json.call_args
-    body = call_args[0][1]
-    assert body["subject"] == "test@example.com"
+    with patch("claws_tasks.tasks._token_fn") as mock_tfn:
+        mock_tfn.return_value = lambda: "test-token"
+        delete_task(tasklist="@default", task_id="task-1", as_user="test@example.com")
+        mock_tfn.assert_called_once_with("test@example.com")
 
 
 # --- handle_tasks_error ---

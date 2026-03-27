@@ -7,6 +7,7 @@ insertion, appending text, and error handling.
 
 import httpx
 from claws_common.client import ClawsClient
+from claws_common.google import google_request
 from claws_common.output import crash, fail
 
 AUTH_PORT = 8301
@@ -30,33 +31,18 @@ def get_access_token(as_user: str | None = None) -> str:
     return resp["access_token"]
 
 
-def _docs_headers(token: str) -> dict:
-    """Build authorization headers for Docs/Drive API calls."""
-    return {"Authorization": f"Bearer {token}"}
+def _token_fn(as_user: str | None = None):
+    return lambda: get_access_token(as_user=as_user)
 
 
-def _docs_get(url: str, token: str, params: dict | None = None) -> dict:
+def _docs_get(url: str, token_fn, params: dict | None = None) -> dict:
     """GET request returning JSON response."""
-    resp = httpx.get(
-        url,
-        params=params,
-        headers=_docs_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("GET", url, token_fn, params=params)
 
 
-def _docs_post(url: str, token: str, body: dict) -> dict:
+def _docs_post(url: str, token_fn, body: dict) -> dict:
     """POST request returning JSON response."""
-    resp = httpx.post(
-        url,
-        json=body,
-        headers=_docs_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("POST", url, token_fn, json=body)
 
 
 def extract_text(document: dict) -> str:
@@ -82,13 +68,13 @@ def list_documents(max_results: int = 100, as_user: str | None = None) -> list[d
 
     Filters by mimeType='application/vnd.google-apps.document'.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     params = {
         "q": "mimeType='application/vnd.google-apps.document'",
         "pageSize": max_results,
         "fields": "files(id,name,modifiedTime)",
     }
-    data = _docs_get(f"{DRIVE_BASE}/files", token, params=params)
+    data = _docs_get(f"{DRIVE_BASE}/files", tfn, params=params)
     return data.get("files", [])
 
 
@@ -97,8 +83,8 @@ def read_document(doc_id: str, as_user: str | None = None) -> dict:
 
     Returns dict with documentId, title, and extracted text.
     """
-    token = get_access_token(as_user=as_user)
-    doc = _docs_get(f"{DOCS_BASE}/{doc_id}", token)
+    tfn = _token_fn(as_user)
+    doc = _docs_get(f"{DOCS_BASE}/{doc_id}", tfn)
     return {
         "documentId": doc["documentId"],
         "title": doc["title"],
@@ -114,14 +100,14 @@ def create_document(
     If body is provided, creates blank doc then inserts text via batchUpdate.
     Returns dict with documentId and title.
     """
-    token = get_access_token(as_user=as_user)
-    doc = _docs_post(DOCS_BASE, token, {"title": title})
+    tfn = _token_fn(as_user)
+    doc = _docs_post(DOCS_BASE, tfn, {"title": title})
     doc_id = doc["documentId"]
 
     if body:
         _docs_post(
             f"{DOCS_BASE}/{doc_id}:batchUpdate",
-            token,
+            tfn,
             {
                 "requests": [
                     {
@@ -142,10 +128,10 @@ def append_text(doc_id: str, text: str, as_user: str | None = None) -> dict:
 
     Uses InsertTextRequest with endOfSegmentLocation to append at the end.
     """
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     return _docs_post(
         f"{DOCS_BASE}/{doc_id}:batchUpdate",
-        token,
+        tfn,
         {
             "requests": [
                 {

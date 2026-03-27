@@ -6,6 +6,7 @@ and error handling for the Google Tasks API.
 
 import httpx
 from claws_common.client import ClawsClient
+from claws_common.google import google_request
 from claws_common.output import crash, fail
 
 AUTH_PORT = 8301
@@ -23,61 +24,35 @@ def get_access_token(as_user: str | None = None) -> str:
     return resp["access_token"]
 
 
-def _tasks_headers(token: str) -> dict:
-    """Build authorization headers for Tasks API calls."""
-    return {"Authorization": f"Bearer {token}"}
+def _token_fn(as_user: str | None = None):
+    return lambda: get_access_token(as_user=as_user)
 
 
-def _tasks_get(path: str, token: str, params: dict | None = None) -> dict:
+def _tasks_get(path: str, token_fn, params: dict | None = None) -> dict:
     """GET request to Tasks API."""
-    resp = httpx.get(
-        f"{TASKS_BASE}{path}",
-        params=params,
-        headers=_tasks_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("GET", f"{TASKS_BASE}{path}", token_fn, params=params)
 
 
-def _tasks_post(path: str, token: str, body: dict) -> dict:
+def _tasks_post(path: str, token_fn, body: dict) -> dict:
     """POST request to Tasks API."""
-    resp = httpx.post(
-        f"{TASKS_BASE}{path}",
-        json=body,
-        headers=_tasks_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("POST", f"{TASKS_BASE}{path}", token_fn, json=body)
 
 
-def _tasks_patch(path: str, token: str, body: dict) -> dict:
+def _tasks_patch(path: str, token_fn, body: dict) -> dict:
     """PATCH request to Tasks API."""
-    resp = httpx.patch(
-        f"{TASKS_BASE}{path}",
-        json=body,
-        headers=_tasks_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return google_request("PATCH", f"{TASKS_BASE}{path}", token_fn, json=body)
 
 
-def _tasks_delete(path: str, token: str) -> None:
+def _tasks_delete(path: str, token_fn) -> None:
     """DELETE request to Tasks API."""
-    resp = httpx.delete(
-        f"{TASKS_BASE}{path}",
-        headers=_tasks_headers(token),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
+    google_request("DELETE", f"{TASKS_BASE}{path}", token_fn, raw=True)
+    return None
 
 
 def list_task_lists(as_user: str | None = None) -> list[dict]:
     """List all task lists for the user."""
-    token = get_access_token(as_user=as_user)
-    data = _tasks_get("/users/@me/lists", token)
+    tfn = _token_fn(as_user)
+    data = _tasks_get("/users/@me/lists", tfn)
     return data.get("items", [])
 
 
@@ -85,10 +60,10 @@ def list_tasks(
     tasklist: str = "@default", max_results: int = 100, as_user: str | None = None
 ) -> list[dict]:
     """List tasks in a task list."""
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     data = _tasks_get(
         f"/lists/{tasklist}/tasks",
-        token,
+        tfn,
         params={"maxResults": max_results},
     )
     return data.get("items", [])
@@ -98,19 +73,19 @@ def create_task(
     tasklist: str, title: str, notes: str | None = None, as_user: str | None = None
 ) -> dict:
     """Create a new task in a task list."""
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     body: dict = {"title": title}
     if notes:
         body["notes"] = notes
-    return _tasks_post(f"/lists/{tasklist}/tasks", token, body)
+    return _tasks_post(f"/lists/{tasklist}/tasks", tfn, body)
 
 
 def complete_task(tasklist: str, task_id: str, as_user: str | None = None) -> dict:
     """Mark a task as completed."""
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     return _tasks_patch(
         f"/lists/{tasklist}/tasks/{task_id}",
-        token,
+        tfn,
         {"status": "completed"},
     )
 
@@ -123,19 +98,19 @@ def update_task(
     as_user: str | None = None,
 ) -> dict:
     """Update a task's title and/or notes."""
-    token = get_access_token(as_user=as_user)
+    tfn = _token_fn(as_user)
     body: dict = {}
     if title is not None:
         body["title"] = title
     if notes is not None:
         body["notes"] = notes
-    return _tasks_patch(f"/lists/{tasklist}/tasks/{task_id}", token, body)
+    return _tasks_patch(f"/lists/{tasklist}/tasks/{task_id}", tfn, body)
 
 
 def delete_task(tasklist: str, task_id: str, as_user: str | None = None) -> None:
     """Delete a task from a task list."""
-    token = get_access_token(as_user=as_user)
-    _tasks_delete(f"/lists/{tasklist}/tasks/{task_id}", token)
+    tfn = _token_fn(as_user)
+    _tasks_delete(f"/lists/{tasklist}/tasks/{task_id}", tfn)
 
 
 def handle_tasks_error(e: httpx.HTTPStatusError) -> None:

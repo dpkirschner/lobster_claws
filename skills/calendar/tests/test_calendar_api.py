@@ -38,9 +38,9 @@ def mock_auth_client():
 
 
 @pytest.fixture
-def mock_httpx():
-    """Patch httpx in calendar module."""
-    with patch("claws_calendar.calendar.httpx") as mock:
+def mock_google_request():
+    """Patch google_request in calendar module."""
+    with patch("claws_calendar.calendar.google_request") as mock:
         yield mock
 
 
@@ -111,70 +111,67 @@ def test_get_access_token_without_subject(mock_auth_client):
     assert "subject" not in body
 
 
-def test_list_events_passes_subject(mock_auth_client, mock_httpx):
+def test_list_events_passes_subject(mock_auth_client, mock_google_request):
     """list_events(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"items": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"items": []}
 
     list_events(as_user="bob@example.com")
 
+    # The token_fn should call get_access_token with the subject when invoked
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()  # trigger the lambda
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "bob@example.com"
 
 
-def test_get_event_passes_subject(mock_auth_client, mock_httpx, sample_timed_event):
+def test_get_event_passes_subject(mock_auth_client, mock_google_request, sample_timed_event):
     """get_event(event_id, as_user=...) threads as_user through."""
-    response = MagicMock()
-    response.json.return_value = sample_timed_event
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = sample_timed_event
 
     get_event("evt-001", as_user="bob@example.com")
 
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "bob@example.com"
 
 
-def test_create_event_passes_subject(mock_auth_client, mock_httpx, sample_timed_event):
+def test_create_event_passes_subject(mock_auth_client, mock_google_request, sample_timed_event):
     """create_event(..., as_user=...) threads as_user through."""
-    response = MagicMock()
-    response.json.return_value = sample_timed_event
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = sample_timed_event
 
     create_event("Test", "2026-03-20T10:00:00Z", "2026-03-20T11:00:00Z", as_user="bob@example.com")
 
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "bob@example.com"
 
 
-def test_update_event_passes_subject(mock_auth_client, mock_httpx, sample_timed_event):
+def test_update_event_passes_subject(mock_auth_client, mock_google_request, sample_timed_event):
     """update_event(event_id, as_user=...) threads as_user through."""
-    response = MagicMock()
-    response.json.return_value = sample_timed_event
-    response.raise_for_status = MagicMock()
-    mock_httpx.put.return_value = response
+    mock_google_request.return_value = sample_timed_event
 
     update_event("evt-001", title="New", as_user="bob@example.com")
 
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "bob@example.com"
 
 
-def test_delete_event_passes_subject(mock_auth_client, mock_httpx):
+def test_delete_event_passes_subject(mock_auth_client, mock_google_request):
     """delete_event(event_id, as_user=...) threads as_user through."""
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    mock_httpx.delete.return_value = response
+    mock_google_request.return_value = MagicMock()
 
     delete_event("evt-001", as_user="bob@example.com")
 
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "bob@example.com"
@@ -183,12 +180,9 @@ def test_delete_event_passes_subject(mock_auth_client, mock_httpx):
 # --- list_events ---
 
 
-def test_list_events_default_params(mock_auth_client, mock_httpx, sample_timed_event):
+def test_list_events_default_params(mock_auth_client, mock_google_request, sample_timed_event):
     """list_events with no args uses default params and returns formatted events."""
-    response = MagicMock()
-    response.json.return_value = {"items": [sample_timed_event]}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"items": [sample_timed_event]}
 
     events = list_events()
 
@@ -202,8 +196,8 @@ def test_list_events_default_params(mock_auth_client, mock_httpx, sample_timed_e
     assert evt["all_day"] is False
 
     # Verify API params
-    call_kwargs = mock_httpx.get.call_args
-    params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
+    call_kwargs = mock_google_request.call_args
+    params = call_kwargs.kwargs.get("params")
     assert params["singleEvents"] == "true"
     assert params["orderBy"] == "startTime"
     assert params["maxResults"] == 25
@@ -211,41 +205,32 @@ def test_list_events_default_params(mock_auth_client, mock_httpx, sample_timed_e
     assert "timeMax" not in params
 
 
-def test_list_events_custom_time_range(mock_auth_client, mock_httpx):
+def test_list_events_custom_time_range(mock_auth_client, mock_google_request):
     """list_events passes timeMin/timeMax when provided."""
-    response = MagicMock()
-    response.json.return_value = {"items": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"items": []}
 
     list_events(time_min="2026-03-20T00:00:00Z", time_max="2026-03-21T00:00:00Z")
 
-    call_kwargs = mock_httpx.get.call_args
-    params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
+    call_kwargs = mock_google_request.call_args
+    params = call_kwargs.kwargs.get("params")
     assert params["timeMin"] == "2026-03-20T00:00:00Z"
     assert params["timeMax"] == "2026-03-21T00:00:00Z"
 
 
-def test_list_events_custom_max_results(mock_auth_client, mock_httpx):
+def test_list_events_custom_max_results(mock_auth_client, mock_google_request):
     """list_events passes custom maxResults."""
-    response = MagicMock()
-    response.json.return_value = {"items": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"items": []}
 
     list_events(max_results=10)
 
-    call_kwargs = mock_httpx.get.call_args
-    params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
+    call_kwargs = mock_google_request.call_args
+    params = call_kwargs.kwargs.get("params")
     assert params["maxResults"] == 10
 
 
-def test_list_events_empty(mock_auth_client, mock_httpx):
+def test_list_events_empty(mock_auth_client, mock_google_request):
     """list_events returns empty list when no items."""
-    response = MagicMock()
-    response.json.return_value = {}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {}
 
     events = list_events()
     assert events == []
@@ -335,12 +320,9 @@ def test_format_event_detail_empty_attendees(sample_allday_event):
 # --- get_event ---
 
 
-def test_get_event(mock_auth_client, mock_httpx, sample_timed_event):
+def test_get_event(mock_auth_client, mock_google_request, sample_timed_event):
     """get_event calls API with event ID and returns full detail."""
-    response = MagicMock()
-    response.json.return_value = sample_timed_event
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = sample_timed_event
 
     result = get_event("evt-001")
 
@@ -349,8 +331,8 @@ def test_get_event(mock_auth_client, mock_httpx, sample_timed_event):
     assert result["html_link"] == "https://calendar.google.com/event?eid=abc"
 
     # Verify correct URL path
-    call_args = mock_httpx.get.call_args
-    url = call_args[0][0] if call_args[0] else call_args.kwargs.get("url", "")
+    call_args = mock_google_request.call_args
+    url = call_args[0][1]
     assert "events/evt-001" in url
 
 
@@ -463,76 +445,66 @@ def test_date_to_rfc3339_end_of_day():
 # --- _calendar_post ---
 
 
-def test_calendar_post(mock_httpx):
-    """_calendar_post calls httpx.post with correct args and returns json."""
-    response = MagicMock()
-    response.json.return_value = {"id": "new-evt"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+def test_calendar_post(mock_google_request):
+    """_calendar_post calls google_request with correct args and returns result."""
+    mock_google_request.return_value = {"id": "new-evt"}
+    token_fn = lambda: "test-token"
 
-    result = _calendar_post("/events", "test-token", {"summary": "Test"})
+    result = _calendar_post("/events", token_fn, {"summary": "Test"})
 
     assert result == {"id": "new-evt"}
-    mock_httpx.post.assert_called_once_with(
+    mock_google_request.assert_called_once_with(
+        "POST",
         "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        token_fn,
         json={"summary": "Test"},
-        headers={"Authorization": "Bearer test-token"},
-        timeout=30.0,
     )
-    response.raise_for_status.assert_called_once()
 
 
 # --- _calendar_put ---
 
 
-def test_calendar_put(mock_httpx):
-    """_calendar_put calls httpx.put with correct args and returns json."""
-    response = MagicMock()
-    response.json.return_value = {"id": "evt-001", "summary": "Updated"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.put.return_value = response
+def test_calendar_put(mock_google_request):
+    """_calendar_put calls google_request with correct args and returns result."""
+    mock_google_request.return_value = {"id": "evt-001", "summary": "Updated"}
+    token_fn = lambda: "test-token"
 
-    result = _calendar_put("/events/evt-001", "test-token", {"summary": "Updated"})
+    result = _calendar_put("/events/evt-001", token_fn, {"summary": "Updated"})
 
     assert result == {"id": "evt-001", "summary": "Updated"}
-    mock_httpx.put.assert_called_once_with(
+    mock_google_request.assert_called_once_with(
+        "PUT",
         "https://www.googleapis.com/calendar/v3/calendars/primary/events/evt-001",
+        token_fn,
         json={"summary": "Updated"},
-        headers={"Authorization": "Bearer test-token"},
-        timeout=30.0,
     )
-    response.raise_for_status.assert_called_once()
 
 
 # --- _calendar_delete ---
 
 
-def test_calendar_delete(mock_httpx):
-    """_calendar_delete calls httpx.delete with correct args, no return value."""
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    mock_httpx.delete.return_value = response
+def test_calendar_delete(mock_google_request):
+    """_calendar_delete calls google_request with raw=True and returns None."""
+    mock_google_request.return_value = MagicMock()
+    token_fn = lambda: "test-token"
 
-    result = _calendar_delete("/events/evt-001", "test-token")
+    result = _calendar_delete("/events/evt-001", token_fn)
 
     assert result is None
-    mock_httpx.delete.assert_called_once_with(
+    mock_google_request.assert_called_once_with(
+        "DELETE",
         "https://www.googleapis.com/calendar/v3/calendars/primary/events/evt-001",
-        headers={"Authorization": "Bearer test-token"},
-        timeout=30.0,
+        token_fn,
+        raw=True,
     )
-    response.raise_for_status.assert_called_once()
 
 
 # --- create_event ---
 
 
-def test_create_event_minimal(mock_auth_client, mock_httpx, sample_timed_event):
+def test_create_event_minimal(mock_auth_client, mock_google_request, sample_timed_event):
     """create_event with only title+start+end builds correct minimal body."""
-    response = MagicMock()
-    response.json.return_value = sample_timed_event
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = sample_timed_event
 
     result = create_event(
         "Team standup",
@@ -543,8 +515,8 @@ def test_create_event_minimal(mock_auth_client, mock_httpx, sample_timed_event):
     assert result["id"] == "evt-001"
     assert result["summary"] == "Team standup"
 
-    call_kwargs = mock_httpx.post.call_args
-    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    call_kwargs = mock_google_request.call_args
+    body = call_kwargs.kwargs.get("json")
     assert body["summary"] == "Team standup"
     assert body["start"] == {"dateTime": "2026-03-20T10:00:00-07:00"}
     assert body["end"] == {"dateTime": "2026-03-20T11:00:00-07:00"}
@@ -553,12 +525,9 @@ def test_create_event_minimal(mock_auth_client, mock_httpx, sample_timed_event):
     assert "attendees" not in body
 
 
-def test_create_event_full(mock_auth_client, mock_httpx, sample_timed_event):
+def test_create_event_full(mock_auth_client, mock_google_request, sample_timed_event):
     """create_event with all optional fields includes them in body."""
-    response = MagicMock()
-    response.json.return_value = sample_timed_event
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = sample_timed_event
 
     result = create_event(
         "Team standup",
@@ -571,8 +540,8 @@ def test_create_event_full(mock_auth_client, mock_httpx, sample_timed_event):
 
     assert result["id"] == "evt-001"
 
-    call_kwargs = mock_httpx.post.call_args
-    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    call_kwargs = mock_google_request.call_args
+    body = call_kwargs.kwargs.get("json")
     assert body["location"] == "Room A"
     assert body["description"] == "Daily sync"
     assert body["attendees"] == [
@@ -581,12 +550,9 @@ def test_create_event_full(mock_auth_client, mock_httpx, sample_timed_event):
     ]
 
 
-def test_create_event_all_day(mock_auth_client, mock_httpx, sample_timed_event):
+def test_create_event_all_day(mock_auth_client, mock_google_request, sample_timed_event):
     """create_event with all_day=True uses date instead of dateTime."""
-    response = MagicMock()
-    response.json.return_value = sample_timed_event
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+    mock_google_request.return_value = sample_timed_event
 
     create_event(
         "Company holiday",
@@ -595,36 +561,33 @@ def test_create_event_all_day(mock_auth_client, mock_httpx, sample_timed_event):
         all_day=True,
     )
 
-    call_kwargs = mock_httpx.post.call_args
-    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    call_kwargs = mock_google_request.call_args
+    body = call_kwargs.kwargs.get("json")
     assert body["start"] == {"date": "2026-03-20"}
     assert body["end"] == {"date": "2026-03-21"}
 
 
-def test_create_event_calls_auth(mock_auth_client, mock_httpx, sample_timed_event):
-    """create_event acquires token via get_access_token."""
-    response = MagicMock()
-    response.json.return_value = sample_timed_event
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
+def test_create_event_calls_auth(mock_auth_client, mock_google_request, sample_timed_event):
+    """create_event passes a token_fn that calls get_access_token."""
+    mock_google_request.return_value = sample_timed_event
 
     create_event("Test", "2026-03-20T10:00:00Z", "2026-03-20T11:00:00Z")
 
+    # Verify google_request was called with a callable token_fn
+    call_args = mock_google_request.call_args
+    token_fn = call_args[0][2]
+    assert callable(token_fn)
+    # Invoke the token_fn to verify it calls auth
+    token_fn()
     mock_auth_client.post_json.assert_called_once()
-    call_kwargs = mock_httpx.post.call_args
-    headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers")
-    assert headers["Authorization"] == "Bearer test-token"
 
 
 # --- update_event ---
 
 
-def test_update_event(mock_auth_client, mock_httpx, sample_timed_event):
+def test_update_event(mock_auth_client, mock_google_request, sample_timed_event):
     """update_event calls PUT with all provided fields."""
-    response = MagicMock()
-    response.json.return_value = sample_timed_event
-    response.raise_for_status = MagicMock()
-    mock_httpx.put.return_value = response
+    mock_google_request.return_value = sample_timed_event
 
     result = update_event(
         "evt-001",
@@ -638,11 +601,11 @@ def test_update_event(mock_auth_client, mock_httpx, sample_timed_event):
 
     assert result["id"] == "evt-001"
 
-    call_kwargs = mock_httpx.put.call_args
-    url = call_kwargs[0][0] if call_kwargs[0] else call_kwargs.kwargs.get("url", "")
+    call_args = mock_google_request.call_args
+    url = call_args[0][1]
     assert "events/evt-001" in url
 
-    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    body = call_args.kwargs.get("json")
     assert body["summary"] == "New title"
     assert body["start"] == {"dateTime": "2026-03-20T14:00:00-07:00"}
     assert body["end"] == {"dateTime": "2026-03-20T15:00:00-07:00"}
@@ -651,62 +614,54 @@ def test_update_event(mock_auth_client, mock_httpx, sample_timed_event):
     assert body["attendees"] == [{"email": "charlie@example.com"}]
 
 
-def test_update_event_partial(mock_auth_client, mock_httpx, sample_timed_event):
+def test_update_event_partial(mock_auth_client, mock_google_request, sample_timed_event):
     """update_event with only title sends body with only summary."""
-    response = MagicMock()
-    response.json.return_value = sample_timed_event
-    response.raise_for_status = MagicMock()
-    mock_httpx.put.return_value = response
+    mock_google_request.return_value = sample_timed_event
 
     update_event("evt-001", title="New title")
 
-    call_kwargs = mock_httpx.put.call_args
-    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    call_args = mock_google_request.call_args
+    body = call_args.kwargs.get("json")
     assert body == {"summary": "New title"}
 
 
-def test_update_event_calls_auth(mock_auth_client, mock_httpx, sample_timed_event):
-    """update_event acquires token via get_access_token."""
-    response = MagicMock()
-    response.json.return_value = sample_timed_event
-    response.raise_for_status = MagicMock()
-    mock_httpx.put.return_value = response
+def test_update_event_calls_auth(mock_auth_client, mock_google_request, sample_timed_event):
+    """update_event passes a token_fn that calls get_access_token."""
+    mock_google_request.return_value = sample_timed_event
 
     update_event("evt-001", title="Test")
 
+    call_args = mock_google_request.call_args
+    token_fn = call_args[0][2]
+    assert callable(token_fn)
+    token_fn()
     mock_auth_client.post_json.assert_called_once()
-    call_kwargs = mock_httpx.put.call_args
-    headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers")
-    assert headers["Authorization"] == "Bearer test-token"
 
 
 # --- delete_event ---
 
 
-def test_delete_event(mock_auth_client, mock_httpx):
+def test_delete_event(mock_auth_client, mock_google_request):
     """delete_event calls DELETE and returns confirmation dict."""
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    mock_httpx.delete.return_value = response
+    mock_google_request.return_value = MagicMock()
 
     result = delete_event("evt-001")
 
     assert result == {"deleted": True, "event_id": "evt-001"}
 
-    call_kwargs = mock_httpx.delete.call_args
-    url = call_kwargs[0][0] if call_kwargs[0] else call_kwargs.kwargs.get("url", "")
+    call_args = mock_google_request.call_args
+    url = call_args[0][1]
     assert "events/evt-001" in url
 
 
-def test_delete_event_calls_auth(mock_auth_client, mock_httpx):
-    """delete_event acquires token via get_access_token."""
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    mock_httpx.delete.return_value = response
+def test_delete_event_calls_auth(mock_auth_client, mock_google_request):
+    """delete_event passes a token_fn that calls get_access_token."""
+    mock_google_request.return_value = MagicMock()
 
     delete_event("evt-001")
 
+    call_args = mock_google_request.call_args
+    token_fn = call_args[0][2]
+    assert callable(token_fn)
+    token_fn()
     mock_auth_client.post_json.assert_called_once()
-    call_kwargs = mock_httpx.delete.call_args
-    headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers")
-    assert headers["Authorization"] == "Bearer test-token"

@@ -35,9 +35,9 @@ def mock_auth_client():
 
 
 @pytest.fixture
-def mock_httpx():
-    """Patch httpx in sheets module."""
-    with patch("claws_sheets.sheets.httpx") as mock:
+def mock_google_request():
+    """Patch google_request in sheets module."""
+    with patch("claws_sheets.sheets.google_request") as mock:
         yield mock
 
 
@@ -114,16 +114,13 @@ def test_get_access_token_without_subject(mock_auth_client):
 # --- list_spreadsheets ---
 
 
-def test_list_spreadsheets(mock_auth_client, mock_httpx):
+def test_list_spreadsheets(mock_auth_client, mock_google_request):
     """list_spreadsheets uses Drive API with mimeType query filter."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "files": [
             {"id": "sheet-1", "name": "Budget", "modifiedTime": "2026-01-01T00:00:00Z"}
         ]
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     files = list_spreadsheets(max_results=50)
 
@@ -131,35 +128,32 @@ def test_list_spreadsheets(mock_auth_client, mock_httpx):
     assert files[0]["id"] == "sheet-1"
     assert files[0]["name"] == "Budget"
 
-    # Verify Drive API call with correct mimeType query
-    call_args = mock_httpx.get.call_args
-    url = call_args[0][0]
-    assert "drive/v3/files" in url
-    params = call_args.kwargs.get("params") or call_args[1].get("params")
+    # Verify google_request call
+    call_args = mock_google_request.call_args
+    assert call_args[0][0] == "GET"
+    assert "drive/v3/files" in call_args[0][1]
+    params = call_args[1]["params"]
     assert "application/vnd.google-apps.spreadsheet" in params["q"]
     assert params["pageSize"] == 50
 
 
-def test_list_spreadsheets_empty(mock_auth_client, mock_httpx):
+def test_list_spreadsheets_empty(mock_auth_client, mock_google_request):
     """list_spreadsheets returns empty list when no files."""
-    response = MagicMock()
-    response.json.return_value = {}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {}
 
     files = list_spreadsheets()
     assert files == []
 
 
-def test_list_spreadsheets_passes_subject(mock_auth_client, mock_httpx):
+def test_list_spreadsheets_passes_subject(mock_auth_client, mock_google_request):
     """list_spreadsheets(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"files": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"files": []}
 
     list_spreadsheets(as_user="test@example.com")
 
+    # Invoke the token_fn to verify it calls get_access_token with correct subject
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "test@example.com"
@@ -168,48 +162,41 @@ def test_list_spreadsheets_passes_subject(mock_auth_client, mock_httpx):
 # --- read_values ---
 
 
-def test_read_values(mock_auth_client, mock_httpx):
+def test_read_values(mock_auth_client, mock_google_request):
     """read_values calls correct Sheets API URL and returns values array."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "range": "Sheet1!A1:B2",
         "values": [["a", "b"], ["c", "d"]],
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
 
     values = read_values("sheet-123", "Sheet1!A1:B2")
 
     assert values == [["a", "b"], ["c", "d"]]
 
     # Verify URL
-    call_args = mock_httpx.get.call_args
-    url = call_args[0][0]
+    call_args = mock_google_request.call_args
+    url = call_args[0][1]
     assert "sheet-123" in url
     assert "Sheet1!A1:B2" in url
     assert "sheets.googleapis.com" in url
 
 
-def test_read_values_empty(mock_auth_client, mock_httpx):
+def test_read_values_empty(mock_auth_client, mock_google_request):
     """read_values returns empty list when no values in range."""
-    response = MagicMock()
-    response.json.return_value = {"range": "Sheet1!A1:B2"}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"range": "Sheet1!A1:B2"}
 
     values = read_values("sheet-123", "Sheet1!A1:B2")
     assert values == []
 
 
-def test_read_values_passes_subject(mock_auth_client, mock_httpx):
+def test_read_values_passes_subject(mock_auth_client, mock_google_request):
     """read_values(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {"values": []}
-    response.raise_for_status = MagicMock()
-    mock_httpx.get.return_value = response
+    mock_google_request.return_value = {"values": []}
 
     read_values("sheet-123", "Sheet1!A1:B2", as_user="test@example.com")
 
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "test@example.com"
@@ -218,46 +205,39 @@ def test_read_values_passes_subject(mock_auth_client, mock_httpx):
 # --- write_values ---
 
 
-def test_write_values(mock_auth_client, mock_httpx):
+def test_write_values(mock_auth_client, mock_google_request):
     """write_values calls PUT with valueInputOption=USER_ENTERED."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "spreadsheetId": "sheet-123",
         "updatedRange": "Sheet1!A1:B2",
         "updatedRows": 2,
         "updatedColumns": 2,
         "updatedCells": 4,
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.put.return_value = response
 
     result = write_values("sheet-123", "Sheet1!A1:B2", [["a", "b"], ["c", "d"]])
 
     assert result["updatedCells"] == 4
 
-    # Verify PUT URL and params
-    call_args = mock_httpx.put.call_args
-    url = call_args[0][0]
+    # Verify PUT call
+    call_args = mock_google_request.call_args
+    assert call_args[0][0] == "PUT"
+    url = call_args[0][1]
     assert "sheet-123" in url
     assert "Sheet1!A1:B2" in url
-    params = call_args.kwargs.get("params") or call_args[1].get("params")
-    assert params["valueInputOption"] == "USER_ENTERED"
-
-    # Verify body
-    json_data = call_args.kwargs.get("json") or call_args[1].get("json")
-    assert json_data["range"] == "Sheet1!A1:B2"
-    assert json_data["values"] == [["a", "b"], ["c", "d"]]
+    assert call_args[1]["params"]["valueInputOption"] == "USER_ENTERED"
+    assert call_args[1]["json"]["range"] == "Sheet1!A1:B2"
+    assert call_args[1]["json"]["values"] == [["a", "b"], ["c", "d"]]
 
 
-def test_write_values_passes_subject(mock_auth_client, mock_httpx):
+def test_write_values_passes_subject(mock_auth_client, mock_google_request):
     """write_values(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {}
-    response.raise_for_status = MagicMock()
-    mock_httpx.put.return_value = response
+    mock_google_request.return_value = {}
 
     write_values("sheet-123", "Sheet1!A1:B2", [["a"]], as_user="test@example.com")
 
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "test@example.com"
@@ -266,41 +246,36 @@ def test_write_values_passes_subject(mock_auth_client, mock_httpx):
 # --- create_spreadsheet ---
 
 
-def test_create_spreadsheet(mock_auth_client, mock_httpx):
+def test_create_spreadsheet(mock_auth_client, mock_google_request):
     """create_spreadsheet posts with properties.title and returns id+title."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "spreadsheetId": "new-sheet-1",
         "properties": {"title": "My Sheet"},
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
 
     result = create_spreadsheet("My Sheet")
 
     assert result["spreadsheetId"] == "new-sheet-1"
     assert result["title"] == "My Sheet"
 
-    # Verify POST body
-    call_args = mock_httpx.post.call_args
-    url = call_args[0][0]
-    assert "sheets.googleapis.com" in url
-    json_data = call_args.kwargs.get("json") or call_args[1].get("json")
-    assert json_data["properties"]["title"] == "My Sheet"
+    # Verify POST call
+    call_args = mock_google_request.call_args
+    assert call_args[0][0] == "POST"
+    assert "sheets.googleapis.com" in call_args[0][1]
+    assert call_args[1]["json"]["properties"]["title"] == "My Sheet"
 
 
-def test_create_spreadsheet_passes_subject(mock_auth_client, mock_httpx):
+def test_create_spreadsheet_passes_subject(mock_auth_client, mock_google_request):
     """create_spreadsheet(as_user=...) threads as_user through to get_access_token."""
-    response = MagicMock()
-    response.json.return_value = {
+    mock_google_request.return_value = {
         "spreadsheetId": "new-sheet-1",
         "properties": {"title": "Test"},
     }
-    response.raise_for_status = MagicMock()
-    mock_httpx.post.return_value = response
 
     create_spreadsheet("Test", as_user="test@example.com")
 
+    token_fn = mock_google_request.call_args[0][2]
+    token_fn()
     call_args = mock_auth_client.post_json.call_args
     body = call_args[0][1]
     assert body["subject"] == "test@example.com"
