@@ -8,6 +8,7 @@ import httpx
 from claws_common.output import crash, result
 
 from claws_gmail.gmail import (
+    archive_message,
     handle_gmail_error,
     list_inbox,
     read_message,
@@ -44,6 +45,10 @@ def main():
     send_p.add_argument("--cc", help="CC recipient(s)")
     send_p.add_argument("--bcc", help="BCC recipient(s)")
 
+    # archive
+    archive_p = subs.add_parser("archive", help="Archive a message (remove from inbox)")
+    archive_p.add_argument("id", help="Message ID")
+
     # search
     search_p = subs.add_parser("search", help="Search messages")
     search_p.add_argument(
@@ -79,6 +84,10 @@ def main():
                 as_user=args.as_user,
             )
             result(resp)
+
+        elif args.command == "archive":
+            resp = archive_message(args.id, as_user=args.as_user)
+            result({"message_id": resp["id"], "labels": resp.get("labelIds", [])})
 
         elif args.command == "search":
             messages = search_messages(query=args.query, max_results=args.max, as_user=args.as_user)

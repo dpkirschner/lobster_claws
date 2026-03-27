@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from claws_gmail.gmail import (
+    archive_message,
     build_raw_message,
     extract_body,
     get_access_token,
@@ -358,6 +359,34 @@ def test_search_messages_passes_subject(mock_auth_client, mock_google_request):
     mock_google_request.return_value = {"messages": []}
 
     search_messages("from:alice", as_user="test@example.com")
+
+    token_fn = mock_google_request.call_args_list[0][0][2]
+    token_fn()
+    body = mock_auth_client.post_json.call_args[0][1]
+    assert body["subject"] == "test@example.com"
+
+
+# --- handle_gmail_error ---
+
+
+def test_archive_message(mock_auth_client, mock_google_request):
+    """archive_message removes INBOX label via messages/modify."""
+    mock_google_request.return_value = {"id": "msg-001", "labelIds": ["UNREAD"]}
+
+    resp = archive_message("msg-001")
+
+    assert resp["id"] == "msg-001"
+    assert "INBOX" not in resp.get("labelIds", [])
+    mock_google_request.assert_called_once()
+    call_kwargs = mock_google_request.call_args
+    assert call_kwargs.kwargs["json"] == {"removeLabelIds": ["INBOX"]}
+
+
+def test_archive_message_passes_subject(mock_auth_client, mock_google_request):
+    """archive_message(as_user=...) threads as_user through to token_fn."""
+    mock_google_request.return_value = {"id": "msg-001", "labelIds": []}
+
+    archive_message("msg-001", as_user="test@example.com")
 
     token_fn = mock_google_request.call_args_list[0][0][2]
     token_fn()

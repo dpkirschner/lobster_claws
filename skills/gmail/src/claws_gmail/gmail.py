@@ -202,6 +202,16 @@ def search_messages(query: str, max_results: int = 10, as_user: str | None = Non
     return messages
 
 
+def archive_message(msg_id: str, as_user: str | None = None) -> dict:
+    """Archive a message by removing the INBOX label."""
+    tfn = _token_fn(as_user)
+    return _gmail_post(
+        f"/messages/{msg_id}/modify",
+        tfn,
+        {"removeLabelIds": ["INBOX"]},
+    )
+
+
 def handle_gmail_error(e: httpx.HTTPStatusError) -> None:
     """Translate Gmail API errors to user-friendly messages."""
     try:

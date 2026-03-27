@@ -226,6 +226,40 @@ def test_search_with_as_flag(monkeypatch):
         mock_search.assert_called_once_with(query="from:bob", max_results=10, as_user="alice@example.com")
 
 
+# --- archive ---
+
+
+def test_archive(monkeypatch):
+    """archive <id> calls archive_message and outputs result."""
+    monkeypatch.setattr("sys.argv", ["claws-gmail", "archive", "msg-001"])
+    resp = {"id": "msg-001", "labelIds": ["UNREAD"]}
+
+    with (
+        patch("claws_gmail.cli.archive_message", return_value=resp) as mock_archive,
+        patch("claws_gmail.cli.result") as mock_result,
+    ):
+        from claws_gmail.cli import main
+
+        main()
+        mock_archive.assert_called_once_with("msg-001", as_user=None)
+        mock_result.assert_called_once_with({"message_id": "msg-001", "labels": ["UNREAD"]})
+
+
+def test_archive_with_as_flag(monkeypatch):
+    """archive --as alice@example.com passes as_user."""
+    monkeypatch.setattr("sys.argv", ["claws-gmail", "--as", "alice@example.com", "archive", "msg-001"])
+    resp = {"id": "msg-001", "labelIds": []}
+
+    with (
+        patch("claws_gmail.cli.archive_message", return_value=resp) as mock_archive,
+        patch("claws_gmail.cli.result"),
+    ):
+        from claws_gmail.cli import main
+
+        main()
+        mock_archive.assert_called_once_with("msg-001", as_user="alice@example.com")
+
+
 # --- search ---
 
 
