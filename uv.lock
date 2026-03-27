@@ -11,9 +11,11 @@ members = [
     "claws-calendar",
     "claws-cli",
     "claws-common",
+    "claws-contacts",
     "claws-docs",
     "claws-drive",
     "claws-gmail",
+    "claws-sheets",
     "claws-tasks",
     "claws-transcribe",
     "google-auth-server",
@@ -248,6 +250,17 @@ dependencies = [
 requires-dist = [{ name = "httpx", specifier = ">=0.28" }]
 
 [[package]]
+name = "claws-contacts"
+version = "0.1.0"
+source = { editable = "skills/contacts" }
+dependencies = [
+    { name = "claws-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "claws-common", editable = "common" }]
+
+[[package]]
 name = "claws-docs"
 version = "0.1.0"
 source = { editable = "skills/docs" }
@@ -273,6 +286,17 @@ requires-dist = [{ name = "claws-common", editable = "common" }]
 name = "claws-gmail"
 version = "0.1.0"
 source = { editable = "skills/gmail" }
+dependencies = [
+    { name = "claws-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "claws-common", editable = "common" }]
+
+[[package]]
+name = "claws-sheets"
+version = "0.1.0"
+source = { editable = "skills/sheets" }
 dependencies = [
     { name = "claws-common" },
 ]
@@ -625,9 +649,11 @@ dev = [
     { name = "claws-calendar" },
     { name = "claws-cli" },
     { name = "claws-common" },
+    { name = "claws-contacts" },
     { name = "claws-docs" },
     { name = "claws-drive" },
     { name = "claws-gmail" },
+    { name = "claws-sheets" },
     { name = "claws-tasks" },
     { name = "claws-transcribe" },
     { name = "google-auth-server" },
@@ -644,9 +670,11 @@ dev = [
     { name = "claws-calendar", editable = "skills/calendar" },
     { name = "claws-cli", editable = "cli" },
     { name = "claws-common", editable = "common" },
+    { name = "claws-contacts", editable = "skills/contacts" },
     { name = "claws-docs", editable = "skills/docs" },
     { name = "claws-drive", editable = "skills/drive" },
     { name = "claws-gmail", editable = "skills/gmail" },
+    { name = "claws-sheets", editable = "skills/sheets" },
     { name = "claws-tasks", editable = "skills/tasks" },
     { name = "claws-transcribe", editable = "skills/transcribe" },
     { name = "google-auth-server", editable = "servers/google-auth" },
