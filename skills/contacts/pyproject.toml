@@ -1,6 +1,6 @@
 [project]
 name = "claws-contacts"
-version = "0.1.0"
+version = "0.2.0"
 description = "Google Contacts skill for Lobster Claws"
 requires-python = ">=3.11"
 dependencies = ["claws-common"]

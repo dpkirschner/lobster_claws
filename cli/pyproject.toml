@@ -1,6 +1,6 @@
 [project]
 name = "claws-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Meta-CLI for Lobster Claws skill discovery and routing"
 requires-python = ">=3.11"
 dependencies = []

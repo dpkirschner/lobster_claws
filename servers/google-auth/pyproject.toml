@@ -1,6 +1,6 @@
 [project]
 name = "google-auth-server"
-version = "0.1.0"
+version = "0.2.0"
 description = "FastAPI token vending server for Google service account delegation"
 requires-python = ">=3.11"
 dependencies = [

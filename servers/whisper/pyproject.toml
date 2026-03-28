@@ -1,6 +1,6 @@
 [project]
 name = "whisper-server"
-version = "0.1.0"
+version = "0.2.0"
 description = "FastAPI server wrapping mlx-whisper for audio transcription"
 requires-python = ">=3.11"
 dependencies = [
